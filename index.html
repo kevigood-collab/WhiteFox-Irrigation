@@ -284,7 +284,11 @@ canvas{display:block;width:100%;height:100%}
 </div>
 
 <script>
-try {
+window.onerror = function(msg, src, line, col, err) {
+  const em = document.getElementById('err-msg');
+  if (em) em.textContent = msg + ' (line ' + line + ')';
+  return false;
+};
 
 // ── STATE ─────────────────────────────────────
 const S = {
@@ -736,10 +740,6 @@ if(!navigator.bluetooth){
 
 renderCfg();
 window.addEventListener('resize',()=>{drawSparks();});
-
-} catch(err) {
-  document.body.innerHTML='<div style="padding:20px;color:#e05050;font-family:monospace;font-size:12px;background:#0a0a0a;min-height:100vh"><div style="color:#e8e8e8;margin-bottom:8px">ERROR</div>'+err.toString()+'<br><br>'+err.stack+'</div>';
-}
 </script>
 </body>
 </html>
