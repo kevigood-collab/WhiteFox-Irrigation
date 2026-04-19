@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="theme-color" content="#0a0a0a">
+<title>WhiteFox Irrigation</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+:root{
+  --bg:#0a0a0a;--bg2:#111;--bg3:#181818;
+  --b:#222;--b2:#2a2a2a;
+  --tx:#c8c8c8;--dim:#555;
+  --green:#00d4a0;--green2:#009e78;
+  --amber:#f0a030;--red:#e05050;--blue:#4488dd;
+  --white:#e8e8e8;
+  --f:'Courier New',Courier,monospace;
+}
+html{height:100%;background:var(--bg)}
+body{height:100%;background:var(--bg);color:var(--tx);font-family:var(--f);font-size:12px;overflow:hidden}
+#app{display:flex;flex-direction:column;height:100%;max-width:430px;margin:0 auto;position:relative}
+
+/* HEADER */
+#hdr{flex-shrink:0;padding:10px 14px 8px;background:var(--bg);border-bottom:1px solid var(--b)}
+.hd-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:2px}
+.hd-path{font-size:9px;letter-spacing:.15em;color:var(--dim)}
+.hd-ble{font-size:9px;display:flex;align-items:center;gap:5px;cursor:pointer;letter-spacing:.08em}
+.ble-dot{width:7px;height:7px;border-radius:50%;background:var(--dim);transition:all .3s}
+.ble-dot.on{background:var(--green);box-shadow:0 0 7px var(--green)}
+.hd-bot{display:flex;justify-content:space-between;align-items:baseline}
+.hd-title{font-size:20px;font-weight:bold;color:var(--white);letter-spacing:-.02em}
+.hd-clk{font-size:11px;color:var(--dim)}
+
+/* SCREENS */
+#screens{flex:1;overflow:hidden;position:relative;min-height:0}
+.scr{position:absolute;inset:0;overflow-y:auto;padding:10px 10px 70px;display:none}
+.scr.on{display:block}
+
+/* TABS */
+#tabs{flex-shrink:0;display:flex;background:var(--bg2);border-top:1px solid var(--b)}
+.tab{flex:1;padding:9px 0 11px;text-align:center;font-size:10px;letter-spacing:.12em;color:var(--dim);cursor:pointer;border-top:2px solid transparent;font-family:var(--f)}
+.tab.on{color:var(--green);border-top-color:var(--green)}
+
+/* CONNECT OVERLAY */
+#overlay{position:absolute;inset:0;background:rgba(10,10,10,.97);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;z-index:50;padding:20px}
+#overlay.hide{display:none}
+.ov-title{font-size:18px;font-weight:bold;color:var(--white);letter-spacing:-.01em}
+.ov-sub{font-size:11px;color:var(--dim);text-align:center;line-height:1.6;max-width:270px}
+.ov-btn{background:var(--green);color:#000;border:none;border-radius:4px;padding:12px 28px;font-family:var(--f);font-size:12px;font-weight:bold;letter-spacing:.1em;cursor:pointer}
+.ov-note{font-size:9px;color:var(--dim);text-align:center;line-height:1.5}
+#err-msg{font-size:10px;color:var(--red);text-align:center;min-height:16px}
+
+/* CARDS */
+.card{background:var(--bg2);border:1px solid var(--b);border-radius:5px;padding:11px;margin-bottom:9px}
+.ch{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px}
+.cl{font-size:9px;letter-spacing:.15em;color:var(--dim)}
+.cs{font-size:9px;display:flex;align-items:center;gap:4px;letter-spacing:.08em}
+.sd{width:6px;height:6px;border-radius:50%}
+.s-ok{background:var(--green);box-shadow:0 0 5px var(--green)}
+.s-id{background:var(--dim)}
+.s-wa{background:var(--amber);box-shadow:0 0 5px var(--amber)}
+.s-er{background:var(--red);box-shadow:0 0 5px var(--red)}
+.s-ru{background:var(--blue);box-shadow:0 0 5px var(--blue)}
+
+/* SOIL */
+.bv{font-size:48px;font-weight:bold;color:var(--white);letter-spacing:-.03em;line-height:1}
+.bu{font-size:14px;color:var(--dim);vertical-align:super}
+.adc{font-size:9px;color:var(--dim);float:right;margin-top:3px}
+.tbar{position:relative;height:4px;background:var(--bg3);border-radius:2px;margin:8px 0 2px;overflow:visible}
+.tfill{height:100%;border-radius:2px;background:var(--green);transition:width .5s;max-width:100%}
+.tmarks{position:relative;height:14px}
+.tm{position:absolute;transform:translateX(-50%);font-size:8px}
+.tm-e{color:var(--red)}
+.tm-t{color:var(--amber)}
+.spk{height:44px;margin-top:6px}
+canvas{display:block;width:100%;height:100%}
+
+/* FLOW */
+.fv{font-size:40px;font-weight:bold;color:var(--white);letter-spacing:-.03em;line-height:1}
+.fbar{height:3px;background:var(--bg3);border-radius:2px;margin-top:9px;overflow:hidden}
+.ffill{height:100%;background:var(--blue);transition:width .5s;border-radius:2px}
+
+/* PUMP */
+.pl{display:flex;align-items:center;gap:8px;margin-bottom:9px}
+.pd{width:10px;height:10px;border-radius:50%;background:var(--dim)}
+.pd.run{background:var(--blue);box-shadow:0 0 8px var(--blue);animation:p 1.5s infinite}
+.pd.emg{background:var(--red);box-shadow:0 0 8px var(--red);animation:p .8s infinite}
+@keyframes p{0%,100%{opacity:1}50%{opacity:.3}}
+.plb{font-size:19px;font-weight:bold;color:var(--white);letter-spacing:.04em}
+.pm{display:grid;grid-template-columns:1fr 1fr;gap:3px 10px;margin-bottom:11px;font-size:10px}
+.pk{color:var(--dim)}
+.pv{color:var(--green)}
+.brow{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+.btn{padding:10px;border:none;border-radius:4px;font-family:var(--f);font-size:11px;font-weight:bold;letter-spacing:.07em;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px}
+.bon{background:var(--green);color:#000}
+.bon:active{background:var(--green2)}
+.boff{background:var(--bg3);color:var(--tx);border:1px solid var(--b2)}
+.boff:active{background:var(--b)}
+
+/* LOG */
+.log{background:var(--bg);border:1px solid var(--b);border-radius:3px;padding:7px;font-size:10px;line-height:1.6;max-height:88px;overflow-y:auto}
+.le{color:var(--dim)}.le.hl{color:var(--green)}.le.er{color:var(--red)}
+.lt{color:#3a3a3a}
+
+/* HIST */
+.hcw{height:170px;background:var(--bg);border:1px solid var(--b);border-radius:4px;padding:6px;margin-bottom:9px}
+.hleg{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:9px}
+.li{display:flex;align-items:center;gap:4px;font-size:9px;color:var(--dim)}
+.ld{width:10px;height:3px;border-radius:1px}
+.srow{display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;margin-bottom:9px}
+.sc{background:var(--bg2);border:1px solid var(--b);border-radius:4px;padding:9px}
+.sl{font-size:9px;letter-spacing:.1em;color:var(--dim);margin-bottom:3px}
+.sv{font-size:19px;font-weight:bold;color:var(--white)}
+.su{font-size:9px;color:var(--dim)}
+.evl{background:var(--bg2);border:1px solid var(--b);border-radius:4px;overflow:hidden}
+.evr{padding:7px 11px;border-bottom:1px solid var(--b);font-size:10px;display:flex;justify-content:space-between}
+.evr:last-child{border-bottom:none}
+.evm{padding:11px;text-align:center;font-size:10px;color:var(--dim)}
+
+/* CFG */
+.rtcc{background:var(--bg2);border:1px solid var(--b);border-radius:5px;padding:11px;margin-bottom:9px}
+.rtcl{font-size:9px;letter-spacing:.15em;color:var(--dim);margin-bottom:5px}
+.rtct{font-size:20px;font-weight:bold;color:var(--white);margin-bottom:7px;letter-spacing:-.01em}
+.rtci{width:100%;background:var(--bg);border:1px solid var(--b2);border-radius:3px;padding:7px 8px;font-family:var(--f);font-size:10px;color:var(--tx)}
+.rtci:focus{outline:none;border-color:var(--green)}
+.cfgh{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px;padding:0 3px}
+.cfgl{font-size:9px;letter-spacing:.15em;color:var(--dim)}
+.advt{font-size:9px;color:var(--green);cursor:pointer;letter-spacing:.04em}
+.cfglist{background:var(--bg2);border:1px solid var(--b);border-radius:5px;overflow:hidden;margin-bottom:9px}
+.cfgr{display:flex;align-items:center;padding:9px 11px;border-bottom:1px solid var(--b);cursor:pointer}
+.cfgr:last-child{border-bottom:none}
+.cfgr:active{background:var(--bg3)}
+.cfgr.dirty{border-left:2px solid var(--amber)}
+.cn{font-size:9px;color:var(--dim);width:18px;flex-shrink:0}
+.ci{flex:1}
+.cnm{font-size:11px;font-weight:500;color:var(--white)}
+.cd{font-size:9px;color:var(--dim);margin-top:1px}
+.cv{font-size:12px;font-weight:bold;color:var(--green);text-align:right;flex-shrink:0;padding-left:6px}
+.cv.dirty{color:var(--amber)}
+.advsec{display:none}.advsec.open{display:block}
+.savebar{background:var(--bg2);border:1px solid var(--b);border-radius:4px;padding:11px;text-align:center;font-size:10px;color:var(--dim);margin-bottom:7px;cursor:pointer;letter-spacing:.05em}
+.savebar.has{background:var(--amber);color:#000;font-weight:bold;border-color:var(--amber)}
+.resetbar{background:var(--bg2);border:1px solid var(--b2);border-radius:4px;padding:9px;text-align:center;font-size:10px;color:var(--dim);margin-bottom:9px;cursor:pointer;letter-spacing:.05em}
+.resetbar:active{background:var(--bg3)}
+.cfgnote{font-size:9px;color:var(--dim);line-height:1.6;padding:0 3px}
+
+/* MODAL */
+#modal{position:fixed;inset:0;background:rgba(0,0,0,.88);display:flex;align-items:flex-end;z-index:200}
+#modal.hide{display:none}
+.ms{background:var(--bg2);border-top:1px solid var(--b);border-radius:12px 12px 0 0;padding:18px 14px 30px;width:100%;max-width:430px;margin:0 auto}
+.mt{font-size:12px;font-weight:bold;color:var(--white);margin-bottom:3px;word-break:break-all}
+.md{font-size:10px;color:var(--dim);margin-bottom:10px;line-height:1.5}
+.mp{font-size:9px;color:var(--green);background:var(--bg);border:1px solid var(--b);border-radius:3px;padding:5px 7px;margin-bottom:10px;font-family:var(--f);letter-spacing:.04em}
+.mi{width:100%;background:var(--bg);border:1px solid var(--b2);border-radius:4px;padding:10px 11px;font-family:var(--f);font-size:18px;color:var(--white);margin-bottom:11px}
+.mi:focus{outline:none;border-color:var(--green)}
+.mbtns{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+.mcanc{background:var(--bg3);border:1px solid var(--b2);border-radius:4px;padding:10px;font-family:var(--f);font-size:11px;color:var(--tx);cursor:pointer}
+.maply{background:var(--green);border:none;border-radius:4px;padding:10px;font-family:var(--f);font-size:11px;font-weight:bold;color:#000;cursor:pointer}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="hdr">
+    <div class="hd-top">
+      <div class="hd-path">WHITE_FOX_CABIN / IRRIGATION</div>
+      <div class="hd-ble" onclick="toggleBle()">
+        <div class="ble-dot" id="bdot"></div>
+        <span id="blbl">CONNECT</span>
+      </div>
+    </div>
+    <div class="hd-bot">
+      <div class="hd-title" id="stitle">Dashboard</div>
+      <div class="hd-clk" id="clk">--:--:--</div>
+    </div>
+  </div>
+
+  <div id="screens">
+    <div id="overlay">
+      <div class="ov-title">WhiteFox Irrigation</div>
+      <div class="ov-sub">Connect to your ESP32 irrigation controller via Bluetooth</div>
+      <button class="ov-btn" onclick="connectBle()">▶ CONNECT BLE</button>
+      <div id="err-msg"></div>
+      <div class="ov-note">Requires Chrome on Android<br>BLE must be enabled on your phone</div>
+    </div>
+
+    <!-- DASH -->
+    <div class="scr on" id="scr-dash">
+      <div class="card">
+        <div class="ch"><div class="cl">SOIL_MOISTURE</div><div class="cs" id="sstat"><div class="sd s-id"></div><span>--</span></div></div>
+        <div><span class="bv" id="sval">--</span><span class="bu">%</span><span class="adc" id="sadc">adc --</span></div>
+        <div class="tbar"><div class="tfill" id="sbar" style="width:0%"></div></div>
+        <div class="tmarks">
+          <div class="tm tm-e" id="mke" style="left:20%">E</div>
+          <div class="tm tm-t" id="mkt" style="left:50%">T</div>
+        </div>
+        <div class="spk"><canvas id="sspk"></canvas></div>
+      </div>
+
+      <div class="card">
+        <div class="ch"><div class="cl">FLOW_RATE</div><div class="cs" id="fstat"><div class="sd s-id"></div><span>IDLE</span></div></div>
+        <div><span class="fv" id="fval">0.00</span><span style="font-size:12px;color:var(--dim)"> L/min</span></div>
+        <div class="fbar"><div class="ffill" id="fbar" style="width:0%"></div></div>
+        <div class="spk"><canvas id="fspk"></canvas></div>
+      </div>
+
+      <div class="card">
+        <div class="ch"><div class="cl">PUMP_STATE</div><div class="cs" id="pshdr"><div class="sd s-id"></div><span id="pstxt">OFF</span></div></div>
+        <div class="pl"><div class="pd" id="pdot"></div><div class="plb" id="plbl">IDLE</div></div>
+        <div class="pm">
+          <span class="pk">rtc</span><span class="pv" id="prtc">--:--:--</span>
+          <span class="pk">cooldown</span><span class="pv" id="pcool">clear</span>
+          <span class="pk">win</span><span class="pv" id="pwin">07:00-11:00</span>
+          <span class="pk">next</span><span class="pv" id="pnext">waiting</span>
+        </div>
+        <div class="brow">
+          <button class="btn bon" onclick="sendCmd('water on')">▶ WATER ON</button>
+          <button class="btn boff" onclick="sendCmd('water off')">■ WATER OFF</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="ch"><div class="cl">BLE_LOG</div><div style="font-size:9px;color:var(--dim)">tail -f</div></div>
+        <div class="log" id="blog"><div class="le"><span class="lt">--:--:-- </span>waiting...</div></div>
+      </div>
+    </div>
+
+    <!-- HIST -->
+    <div class="scr" id="scr-hist">
+      <div class="ch" style="margin-bottom:7px;padding:0 3px"><div class="cl">TIMELINE · 24H</div><div class="cl">SOIL % · FLOW</div></div>
+      <div class="hcw"><canvas id="hcnv"></canvas></div>
+      <div class="hleg">
+        <div class="li"><div class="ld" style="background:var(--green)"></div>soil %</div>
+        <div class="li"><div class="ld" style="background:var(--blue)"></div>flow</div>
+        <div class="li"><div class="ld" style="background:rgba(68,136,221,.3)"></div>pump on</div>
+        <div class="li"><div class="ld" style="background:var(--amber)"></div>threshold</div>
+        <div class="li"><div class="ld" style="background:var(--red)"></div>emergency</div>
+      </div>
+      <div class="srow">
+        <div class="sc"><div class="sl">EVENTS</div><div class="sv" id="hev">0</div></div>
+        <div class="sc"><div class="sl">AVG SOIL</div><div class="sv"><span id="havg">--</span><span class="su">%</span></div></div>
+        <div class="sc"><div class="sl">TOTAL VOL</div><div class="sv"><span id="hvol">0.0</span><span class="su">L</span></div></div>
+      </div>
+      <div class="cl" style="margin-bottom:5px;padding:0 3px">RECENT_EVENTS</div>
+      <div class="evl" id="evl"><div class="evm">no events in range</div></div>
+    </div>
+
+    <!-- CFG -->
+    <div class="scr" id="scr-cfg">
+      <div class="rtcc">
+        <div class="rtcl">RTC_TIME</div>
+        <div class="rtct" id="rtcdisp">---- -- -- --:--:--</div>
+        <input class="rtci" id="rtci" placeholder="set time yyyy mm dd hh mm ss →" onkeydown="rtcKey(event)">
+      </div>
+      <div class="cfgh"><div class="cfgl">CONFIG · 14 VARS</div><div class="advt" id="advt" onclick="togAdv()">+ advanced (7)</div></div>
+      <div class="cfglist" id="cml"></div>
+      <div class="advsec" id="advsec"><div class="cfglist" id="cal"></div></div>
+      <div class="savebar" id="savebar" onclick="saveCfg()">· NO CHANGES TO SAVE</div>
+      <div class="resetbar" onclick="doReset()">↺ FACTORY RESET</div>
+      <div class="cfgnote">Changes are RAM only until SAVE CONFIG writes to flash.<br>Factory reset restores defaults in RAM — send SAVE CONFIG to persist.</div>
+    </div>
+  </div>
+
+  <div id="tabs">
+    <div class="tab on" id="tab-dash" onclick="showScr('dash','Dashboard')">DASH</div>
+    <div class="tab" id="tab-hist" onclick="showScr('hist','History')">HIST</div>
+    <div class="tab" id="tab-cfg" onclick="showScr('cfg','Settings')">CFG</div>
+  </div>
+</div>
+
+<div id="modal" class="hide">
+  <div class="ms">
+    <div class="mt" id="mtitle"></div>
+    <div class="md" id="mdesc"></div>
+    <div class="mp" id="mprev"></div>
+    <input class="mi" id="minput" type="number" inputmode="decimal" onkeydown="mkey(event)">
+    <div class="mbtns">
+      <button class="mcanc" onclick="closeM()">CANCEL</button>
+      <button class="maply" onclick="applyM()">APPLY</button>
+    </div>
+  </div>
+</div>
+
+<script>
+try {
+
+// ── STATE ─────────────────────────────────────
+const S = {
+  conn:false, soilPct:null, soilAdc:null,
+  flow:0, pump:false, mode:'IDLE',
+  cool:false, coolSec:0, rtc:'',
+  cfg:{}, dirty:{}, advOpen:false
+};
+
+const hist = { soil:[], flow:[], events:[], bands:[], pumpStart:null };
+
+let dev=null, srv=null, txC=null, rxC=null, editN=null;
+
+// ── CONFIG SCHEMA ──────────────────────────────
+const SCHEMA = [
+  {n:1, k:'WATERING_DURATION',          d:'Auto cycle on-time. 60000=1min',  f:fms, adv:false},
+  {n:2, k:'WATERING_COOLDOWN',          d:'Wait after watering. 1800000=30min',f:fms,adv:false},
+  {n:3, k:'MANUAL_WATERING_DURATION',   d:'BLE on-time. 60000=1min',          f:fms, adv:false},
+  {n:4, k:'MOISTURE_THRESHOLD_PERCENT', d:'Normal trigger %. Below=water',    f:v=>v+'%', adv:false},
+  {n:5, k:'WATER_WINDOW_START',         d:'Allowed hours start (0-23)',        f:v=>pad(v)+':00', adv:false},
+  {n:6, k:'WATER_WINDOW_END',           d:'Allowed hours end (0-23)',          f:v=>pad(v)+':00', adv:false},
+  {n:7, k:'EMERGENCY_THRESHOLD_PERCENT',d:'Water anytime below this %',        f:v=>v+'%', adv:false},
+  {n:8, k:'WET_ADC',                   d:'Sensor ADC saturated (calibrate)',  f:String, adv:true},
+  {n:9, k:'DRY_ADC',                   d:'Sensor ADC dry air (calibrate)',    f:String, adv:true},
+  {n:10,k:'SOIL_SMOOTHING_FACTOR',     d:'Soil smoothing 1-100 (100=raw)',    f:String, adv:true},
+  {n:11,k:'FLOW_SMOOTHING_FACTOR',     d:'Flow smoothing 1-100 (100=raw)',    f:String, adv:true},
+  {n:12,k:'FLOW_PULSE',               d:'GR-201 pulses per L/min',            f:String, adv:true},
+  {n:13,k:'FLOW_WINDOW',              d:'Pulse counting window ms',            f:String, adv:true},
+  {n:14,k:'PHONE_NOTIFICATION_DELAY', d:'BLE report rate ms',                  f:String, adv:true},
+];
+
+const DEFS = {
+  WATERING_DURATION:60000, WATERING_COOLDOWN:1800000,
+  MANUAL_WATERING_DURATION:60000, MOISTURE_THRESHOLD_PERCENT:50,
+  WATER_WINDOW_START:7, WATER_WINDOW_END:11,
+  EMERGENCY_THRESHOLD_PERCENT:20, WET_ADC:1250, DRY_ADC:3200,
+  SOIL_SMOOTHING_FACTOR:100, FLOW_SMOOTHING_FACTOR:20,
+  FLOW_PULSE:4.5, FLOW_WINDOW:1000, PHONE_NOTIFICATION_DELAY:1000
+};
+
+Object.assign(S.cfg, DEFS);
+
+function fms(v){
+  v=Number(v);
+  if(v>=3600000) return (v/3600000).toFixed(1)+'h';
+  if(v>=60000) return Math.round(v/60000)+'m';
+  return (v/1000).toFixed(0)+'s';
+}
+function pad(v){return String(v).padStart(2,'0')}
+
+// ── BLE ───────────────────────────────────────
+const SVC='00000001-0000-feed-0000-000000000000';
+const RXU='00000002-0000-feed-0000-000000000000';
+const TXU='00000003-0000-feed-0000-000000000000';
+
+async function connectBle(){
+  const em=document.getElementById('err-msg');
+  em.textContent='Scanning...';
+  try{
+    dev=await navigator.bluetooth.requestDevice({
+      filters:[{name:'WhiteFox Irrigation'}],
+      optionalServices:[SVC]
+    });
+    dev.addEventListener('gattserverdisconnected',onDC);
+    srv=await dev.gatt.connect();
+    const svc=await srv.getPrimaryService(SVC);
+    txC=await svc.getCharacteristic(TXU);
+    rxC=await svc.getCharacteristic(RXU);
+    await txC.startNotifications();
+    txC.addEventListener('characteristicvaluechanged',onNotify);
+    setConn(true);
+    document.getElementById('overlay').classList.add('hide');
+    em.textContent='';
+    log('BLE connected.',true);
+    setTimeout(()=>{sendCmd('config');sendCmd('time');},800);
+  }catch(e){
+    em.textContent=e.message||'Connection failed';
+    log('Error: '+(e.message||e),false,true);
+  }
+}
+
+async function toggleBle(){
+  if(S.conn){if(dev&&dev.gatt.connected)dev.gatt.disconnect();}
+  else connectBle();
+}
+
+function onDC(){
+  setConn(false);
+  log('Disconnected',false,true);
+  document.getElementById('overlay').classList.remove('hide');
+}
+
+function setConn(v){
+  S.conn=v;
+  document.getElementById('bdot').className='ble-dot'+(v?' on':'');
+  document.getElementById('blbl').textContent=v?'BLE LINK':'CONNECT';
+}
+
+async function sendCmd(cmd){
+  if(!rxC){log('Not connected',false,true);return;}
+  try{
+    await rxC.writeValue(new TextEncoder().encode(cmd+'\n'));
+    log('→ '+cmd);
+  }catch(e){log('Send err: '+e.message,false,true);}
+}
+
+// ── PARSE ─────────────────────────────────────
+let buf='';
+function onNotify(e){
+  buf+=new TextDecoder().decode(e.target.value);
+  const lines=buf.split('\n');
+  buf=lines.pop();
+  lines.forEach(parseLine);
+}
+
+function parseLine(raw){
+  const line=raw.trim();
+  if(!line)return;
+  let m;
+
+  // Soil: 50%
+  m=line.match(/^Soil:\s*(\d+)%/);
+  if(m){S.soilPct=+m[1];hist.soil.push({t:Date.now(),v:+m[1]});if(hist.soil.length>2880)hist.soil.shift();dash();return;}
+
+  // Flow: 1.23 L/min
+  m=line.match(/^Flow:\s*([\d.]+)/);
+  if(m){S.flow=+m[1];hist.flow.push({t:Date.now(),v:+m[1]});if(hist.flow.length>86400)hist.flow.shift();dash();return;}
+
+  // Watering (pump on notification)
+  if(line==='Watering'){S.pump=true;S.mode='RUNNING';if(!hist.pumpStart)hist.pumpStart=Date.now();dash();return;}
+
+  // ESP-NOW raw
+  m=line.match(/ESP-NOW rx raw:\s*(\d+)/);
+  if(m){S.soilAdc=+m[1];dash();return;}
+
+  // RTC time
+  m=line.match(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})/);
+  if(m){S.rtc=m[1];document.getElementById('rtcdisp').textContent=m[1];return;}
+
+  // Config value line e.g. " 1 WATERING_DURATION:  60000"
+  m=line.match(/^\s*(\d+)\s+([A-Z_]+)[:\s]+(.+)/);
+  if(m){
+    const sc=SCHEMA.find(s=>s.k===m[2]||s.k===m[2].replace('_PRCNT','_PERCENT'));
+    if(sc){const v=parseFloat(m[3].replace('%','').trim());if(!isNaN(v)){S.cfg[sc.k]=v;renderCfg();dash();}}
+    return;
+  }
+
+  // Stopped
+  if(line.includes('Watering stopped')){
+    if(hist.pumpStart){
+      const dur=(Date.now()-hist.pumpStart)/1000;
+      hist.events.push({t:hist.pumpStart,type:'auto',dur,vol:S.flow*(dur/60)});
+      hist.bands.push({s:hist.pumpStart,e:Date.now()});
+      hist.pumpStart=null;
+    }
+    S.pump=false;S.mode='IDLE';S.cool=true;dash();return;
+  }
+
+  if(line.includes('EMERGENCY')){S.mode='EMERGENCY';S.pump=true;if(!hist.pumpStart)hist.pumpStart=Date.now();dash();return;}
+
+  m=line.match(/(\d+)s remaining/);
+  if(m){S.cool=true;S.coolSec=+m[1];dash();return;}
+
+  // log anything else
+  const hl=line.includes('connect')||line.includes('saved')||line.includes('updated')||line.includes('=');
+  const er=line.includes('ERROR')||line.includes('ERR:');
+  log(line,hl,er);
+}
+
+// ── DASH ──────────────────────────────────────
+function dash(){
+  const soil=S.soilPct;
+  const thr=S.cfg.MOISTURE_THRESHOLD_PERCENT||50;
+  const emg=S.cfg.EMERGENCY_THRESHOLD_PERCENT||20;
+  const ws=S.cfg.WATER_WINDOW_START||7;
+  const we=S.cfg.WATER_WINDOW_END||11;
+
+  if(soil!==null){
+    document.getElementById('sval').textContent=soil;
+    document.getElementById('sbar').style.width=Math.min(soil,100)+'%';
+    if(S.soilAdc!==null)document.getElementById('sadc').textContent='adc '+S.soilAdc;
+    const ss=document.getElementById('sstat');
+    if(soil<emg) ss.innerHTML=dot('er')+' EMERGENCY';
+    else if(soil<thr) ss.innerHTML=dot('wa')+' DRY';
+    else ss.innerHTML=dot('ok')+' OK';
+  }
+  document.getElementById('mke').style.left=emg+'%';
+  document.getElementById('mkt').style.left=thr+'%';
+
+  document.getElementById('fval').textContent=S.flow.toFixed(2);
+  document.getElementById('fbar').style.width=Math.min(S.flow*15,100)+'%';
+  const fl=S.flow>0.1;
+  document.getElementById('fstat').innerHTML=dot(fl?'ru':'id')+(fl?' FLOWING':' IDLE');
+
+  const pd=document.getElementById('pdot');
+  pd.className='pd'+(S.mode==='EMERGENCY'?' emg':S.pump?' run':'');
+  document.getElementById('plbl').textContent=S.mode;
+  document.getElementById('pstxt').textContent=S.pump?'ON':'OFF';
+  document.getElementById('pshdr').querySelector('.sd').className='sd '+(S.mode==='EMERGENCY'?'s-er':S.pump?'s-ru':'s-id');
+
+  const now=new Date();
+  document.getElementById('prtc').textContent=now.toTimeString().slice(0,8);
+  document.getElementById('pwin').textContent=pad(ws)+':00-'+pad(we)+':00';
+  document.getElementById('pcool').textContent=S.cool?(S.coolSec>0?S.coolSec+'s':'active'):'clear';
+
+  const h=now.getHours();
+  let nx='waiting';
+  if(S.pump) nx='running';
+  else if(S.cool) nx='cooldown';
+  else if(!(h>=ws&&h<we)) nx='window '+pad(ws)+':00';
+  else if(soil!==null&&soil<thr) nx='pending';
+  else nx='soil OK, idle';
+  document.getElementById('pnext').textContent=nx;
+
+  drawSparks();
+}
+
+function dot(c){return `<div class="sd s-${c}"></div>`;}
+
+// ── SPARKLINES ────────────────────────────────
+function drawSparks(){
+  sparkline('sspk',hist.soil,'#00d4a0',0,100);
+  sparkline('fspk',hist.flow,'#4488dd',0,8);
+}
+
+function sparkline(id,data,col,lo,hi){
+  const c=document.getElementById(id);
+  if(!c)return;
+  const dpr=window.devicePixelRatio||1;
+  const w=c.offsetWidth,h=c.offsetHeight;
+  if(!w||!h)return;
+  c.width=w*dpr;c.height=h*dpr;
+  const ctx=c.getContext('2d');
+  ctx.scale(dpr,dpr);
+  const pts=data.slice(-80);
+  if(pts.length<2)return;
+  ctx.clearRect(0,0,w,h);
+  ctx.beginPath();
+  pts.forEach((p,i)=>{
+    const x=(i/(pts.length-1))*w;
+    const y=h-((p.v-lo)/(hi-lo))*h;
+    i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+  });
+  ctx.strokeStyle=col;ctx.lineWidth=1.5;ctx.stroke();
+  const g=ctx.createLinearGradient(0,0,0,h);
+  g.addColorStop(0,col+'44');g.addColorStop(1,col+'00');
+  ctx.lineTo(w,h);ctx.lineTo(0,h);ctx.closePath();
+  ctx.fillStyle=g;ctx.fill();
+}
+
+// ── HIST ──────────────────────────────────────
+function drawHist(){
+  const ev=hist.events;
+  document.getElementById('hev').textContent=ev.length;
+  const avg=hist.soil.length?Math.round(hist.soil.reduce((a,b)=>a+b.v,0)/hist.soil.length):'--';
+  document.getElementById('havg').textContent=avg;
+  document.getElementById('hvol').textContent=ev.reduce((a,e)=>a+e.vol,0).toFixed(1);
+
+  const el=document.getElementById('evl');
+  if(!ev.length){el.innerHTML='<div class="evm">no events in range</div>';}
+  else{
+    el.innerHTML=ev.slice(-8).reverse().map(e=>{
+      const d=new Date(e.t);
+      return `<div class="evr"><span style="color:var(--green)">${d.toTimeString().slice(0,5)}</span><span>${e.type}</span><span style="color:var(--dim)">${Math.round(e.dur)}s · ${e.vol.toFixed(1)}L</span></div>`;
+    }).join('');
+  }
+
+  const c=document.getElementById('hcnv');
+  if(!c)return;
+  const dpr=window.devicePixelRatio||1;
+  const w=c.offsetWidth||c.parentElement.clientWidth-12;
+  const h=c.offsetHeight||158;
+  c.width=w*dpr;c.height=h*dpr;
+  const ctx=c.getContext('2d');
+  ctx.scale(dpr,dpr);
+  ctx.clearRect(0,0,w,h);
+
+  const now=Date.now(),span=24*3600000,tMin=now-span;
+  const tx=t=>((t-tMin)/span)*w;
+  const ty=(v,lo,hi)=>h-((v-lo)/(hi-lo))*(h-16)-8;
+
+  // grid
+  ctx.strokeStyle='#1a1a1a';ctx.lineWidth=1;
+  [0,25,50,75,100].forEach(v=>{
+    const y=ty(v,0,100);
+    ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();
+    ctx.fillStyle='#333';ctx.font='9px Courier New';ctx.fillText(v,2,y-2);
+  });
+
+  // thresholds
+  const thr=S.cfg.MOISTURE_THRESHOLD_PERCENT||50;
+  const emg=S.cfg.EMERGENCY_THRESHOLD_PERCENT||20;
+  ctx.setLineDash([4,4]);
+  ctx.strokeStyle='rgba(240,160,48,.5)';ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(0,ty(thr,0,100));ctx.lineTo(w,ty(thr,0,100));ctx.stroke();
+  ctx.strokeStyle='rgba(224,80,80,.5)';
+  ctx.beginPath();ctx.moveTo(0,ty(emg,0,100));ctx.lineTo(w,ty(emg,0,100));ctx.stroke();
+  ctx.setLineDash([]);
+
+  // pump bands
+  hist.bands.filter(b=>b.e>tMin).forEach(b=>{
+    ctx.fillStyle='rgba(68,136,221,.12)';
+    ctx.fillRect(Math.max(0,tx(b.s)),0,Math.min(w,tx(b.e))-Math.max(0,tx(b.s)),h);
+  });
+
+  // soil
+  const sp=hist.soil.filter(p=>p.t>tMin);
+  if(sp.length>1){
+    ctx.beginPath();
+    sp.forEach((p,i)=>{const x=tx(p.t),y=ty(p.v,0,100);i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);});
+    ctx.strokeStyle='#00d4a0';ctx.lineWidth=1.5;ctx.stroke();
+  }
+
+  // flow
+  const fp=hist.flow.filter(p=>p.t>tMin&&p.v>0);
+  if(fp.length>1){
+    ctx.beginPath();
+    fp.forEach((p,i)=>{const x=tx(p.t),y=ty(p.v,0,8);i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);});
+    ctx.strokeStyle='#4488dd';ctx.lineWidth=1;ctx.stroke();
+  }
+
+  // x labels
+  ctx.fillStyle='#333';ctx.font='9px Courier New';
+  for(let hb=24;hb>=0;hb-=4){
+    const x=tx(now-hb*3600000);
+    if(x>10&&x<w-10)ctx.fillText('-'+hb+'h',x+2,h-2);
+  }
+}
+
+// ── CFG ───────────────────────────────────────
+function renderCfg(){
+  renderList('cml',SCHEMA.filter(s=>!s.adv));
+  renderList('cal',SCHEMA.filter(s=>s.adv));
+  const hd=Object.keys(S.dirty).length>0;
+  const sb=document.getElementById('savebar');
+  sb.textContent=hd?'▲ SAVE CONFIG':'· NO CHANGES TO SAVE';
+  sb.className='savebar'+(hd?' has':'');
+}
+
+function renderList(id,sch){
+  document.getElementById(id).innerHTML=sch.map(s=>{
+    const live=S.cfg[s.k]!==undefined?S.cfg[s.k]:DEFS[s.k];
+    const isDirty=S.dirty[s.k]!==undefined;
+    const dv=s.f(isDirty?S.dirty[s.k]:live);
+    return `<div class="cfgr${isDirty?' dirty':''}" onclick="openEdit(${s.n})">
+      <div class="cn">${String(s.n).padStart(2,'0')}</div>
+      <div class="ci"><div class="cnm">${s.k}</div><div class="cd">${s.d}</div></div>
+      <div class="cv${isDirty?' dirty':''}">${dv}</div>
+    </div>`;
+  }).join('');
+}
+
+function togAdv(){
+  S.advOpen=!S.advOpen;
+  document.getElementById('advsec').className='advsec'+(S.advOpen?' open':'');
+  document.getElementById('advt').textContent=(S.advOpen?'− ':'+ ')+'advanced (7)';
+}
+
+function openEdit(n){
+  const s=SCHEMA.find(x=>x.n===n);if(!s)return;
+  editN=n;
+  const cur=S.dirty[s.k]!==undefined?S.dirty[s.k]:(S.cfg[s.k]!==undefined?S.cfg[s.k]:DEFS[s.k]);
+  document.getElementById('mtitle').textContent=s.k;
+  document.getElementById('mdesc').textContent=s.d;
+  document.getElementById('mprev').textContent='set '+n+' '+cur;
+  document.getElementById('minput').value=cur;
+  document.getElementById('modal').classList.remove('hide');
+  setTimeout(()=>document.getElementById('minput').focus(),150);
+}
+
+document.getElementById('minput').addEventListener('input',()=>{
+  const s=SCHEMA.find(x=>x.n===editN);
+  if(s)document.getElementById('mprev').textContent='set '+editN+' '+document.getElementById('minput').value;
+});
+
+function mkey(e){if(e.key==='Enter')applyM();if(e.key==='Escape')closeM();}
+
+function applyM(){
+  const s=SCHEMA.find(x=>x.n===editN);if(!s){closeM();return;}
+  const v=parseFloat(document.getElementById('minput').value);
+  if(isNaN(v)){closeM();return;}
+  S.dirty[s.k]=v;
+  sendCmd('set '+editN+' '+v);
+  renderCfg();closeM();
+}
+function closeM(){document.getElementById('modal').classList.add('hide');editN=null;}
+
+function saveCfg(){
+  if(!Object.keys(S.dirty).length)return;
+  Object.assign(S.cfg,S.dirty);S.dirty={};
+  sendCmd('save config');renderCfg();
+}
+
+function doReset(){
+  if(!confirm('Reset all to factory defaults?'))return;
+  S.dirty={};Object.assign(S.cfg,DEFS);
+  sendCmd('reset');renderCfg();dash();
+}
+
+function rtcKey(e){
+  if(e.key!=='Enter')return;
+  const v=e.target.value.trim();
+  const m=v.match(/^(\d{4})\s+(\d{1,2})\s+(\d{1,2})\s+(\d{1,2})\s+(\d{1,2})\s+(\d{1,2})$/);
+  if(m){sendCmd('set time '+m[1]+' '+m[2]+' '+m[3]+' '+m[4]+' '+m[5]+' '+m[6]);e.target.value='';}
+  else log('Format: yyyy mm dd hh mm ss',false,true);
+}
+
+// ── LOG ───────────────────────────────────────
+function log(msg,hl,er){
+  const el=document.getElementById('blog');
+  const t=new Date().toTimeString().slice(0,8);
+  const d=document.createElement('div');
+  d.className='le'+(er?' er':hl?' hl':'');
+  d.innerHTML='<span class="lt">'+t+' </span>'+msg;
+  el.appendChild(d);
+  while(el.children.length>40)el.removeChild(el.firstChild);
+  el.scrollTop=el.scrollHeight;
+}
+
+// ── NAV ───────────────────────────────────────
+function showScr(name,title){
+  document.querySelectorAll('.scr').forEach(s=>s.classList.remove('on'));
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));
+  document.getElementById('scr-'+name).classList.add('on');
+  document.getElementById('tab-'+name).classList.add('on');
+  document.getElementById('stitle').textContent=title;
+  if(name==='hist'){setTimeout(drawHist,50);}
+  if(name==='cfg'){renderCfg();}
+}
+
+// ── CLOCK ─────────────────────────────────────
+setInterval(()=>{
+  const t=new Date().toTimeString().slice(0,8);
+  document.getElementById('clk').textContent=t;
+  document.getElementById('prtc').textContent=t;
+  if(S.cool&&S.coolSec>0){S.coolSec--;if(S.coolSec<=0)S.cool=false;}
+  if(S.cool)document.getElementById('pcool').textContent=S.coolSec>0?S.coolSec+'s':'active';
+  else document.getElementById('pcool').textContent='clear';
+},1000);
+
+// ── INIT ──────────────────────────────────────
+if(!navigator.bluetooth){
+  document.getElementById('overlay').innerHTML=`
+    <div class="ov-title" style="color:var(--red)">Not Supported</div>
+    <div class="ov-sub">Web Bluetooth requires Chrome on Android.<br><br>Steps:<br>1. Open Chrome (not file manager)<br>2. Navigate to this file<br>3. Or enable chrome://flags → Experimental Web Platform</div>
+    <div id="err-msg"></div>
+  `;
+}
+
+renderCfg();
+window.addEventListener('resize',()=>{drawSparks();});
+
+} catch(err) {
+  document.body.innerHTML='<div style="padding:20px;color:#e05050;font-family:monospace;font-size:12px;background:#0a0a0a;min-height:100vh"><div style="color:#e8e8e8;margin-bottom:8px">ERROR</div>'+err.toString()+'<br><br>'+err.stack+'</div>';
+}
+</script>
+</body>
+</html>
