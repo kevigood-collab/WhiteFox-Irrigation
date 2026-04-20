@@ -307,6 +307,8 @@ const S = {
   conn:false, soilPct:null, soilAdc:null,
   flow:0, pump:false, mode:'IDLE',
   cool:false, coolSec:0, rtc:'',
+  waterRemainSec:0,  // countdown while pump is running
+  waterStartedAt:0,  // local timestamp when pump started
   // three config tiers:
   factory:{},    // compile-time constants — only restored by factory reset
   persistent:{}, // last saved config — what loads on boot
@@ -370,6 +372,12 @@ function fmin(v){
 }
 function msToMin(ms){ return +(ms/60000).toFixed(4); }
 function minToMs(min){ return Math.round(parseFloat(min)*60000); }
+function fmtCountdown(sec){
+  sec=Math.max(0,Math.round(sec));
+  if(sec>=3600) return Math.floor(sec/3600)+'h '+Math.floor((sec%3600)/60)+'m';
+  if(sec>=60) return Math.floor(sec/60)+'m '+String(sec%60).padStart(2,'0')+'s';
+  return sec+'s';
+}
 function pad(v){return String(v).padStart(2,'0')}
 
 // ── BLE ───────────────────────────────────────
@@ -461,8 +469,12 @@ function parseLine(raw){
 
   // Watering (pump on notification — sent with each soil reading while watering)
   if(line==='Watering'){
-    if(!S.pump){S.pump=true;S.mode='RUNNING';if(!hist.pumpStart)hist.pumpStart=Date.now();}
-    S.lastWateringMsg=Date.now(); // timestamp so we can detect when it stops
+    if(!S.pump){
+      S.pump=true;S.mode='RUNNING';
+      if(!hist.pumpStart)hist.pumpStart=Date.now();
+      S.waterStartedAt=Date.now();
+    }
+    S.lastWateringMsg=Date.now();
     dash();return;
   }
 
@@ -556,13 +568,22 @@ function dash(){
   const h=now.getHours();
   const inWindow=(h>=ws&&h<we);
   document.getElementById('pwin').textContent=pad(ws)+':00 - '+pad(we)+':00'+(inWindow?' (open)':' (closed)');
-  document.getElementById('pcool').textContent=S.cool?(S.coolSec>0?S.coolSec+'s remaining':'active'):'clear';
+  document.getElementById('pcool').textContent=S.cool?(S.coolSec>0?fmtCountdown(S.coolSec)+' remaining':'active'):'clear';
 
+  // compute watering time remaining from local clock
   let nx='waiting for sensor';
-  if(S.pump&&S.mode==='EMERGENCY') nx='EMERGENCY WATERING';
-  else if(S.pump) nx='watering now';
-  else if(S.cool) nx='cooldown — waiting before next check';
-  else if(soil!==null&&soil<emg) nx='EMERGENCY — below '+emg+'%';
+  if(S.pump){
+    const dur=S.working.WATERING_DURATION||60000;
+    const elapsedSec=S.waterStartedAt>0?Math.floor((Date.now()-S.waterStartedAt)/1000):0;
+    const remSec=Math.max(0,Math.floor(dur/1000)-elapsedSec);
+    const modeLabel=S.mode==='EMERGENCY'?'EMERGENCY ':'';
+    nx=modeLabel+'watering — '+fmtCountdown(remSec)+' remaining';
+  } else if(S.cool){
+    const remTxt=S.coolSec>0?fmtCountdown(S.coolSec)+' remaining':'finishing';
+    if(soil!==null&&soil<emg) nx='EMERGENCY dry ('+soil+'%) — cooldown '+remTxt;
+    else if(soil!==null&&soil<thr) nx='soil dry — cooldown '+remTxt;
+    else nx='cooldown — '+remTxt;
+  } else if(soil!==null&&soil<emg) nx='EMERGENCY — '+soil+'% below '+emg+'%';
   else if(!inWindow&&soil!==null&&soil<thr) nx='soil dry — window opens at '+pad(ws)+':00';
   else if(!inWindow) nx='window opens at '+pad(ws)+':00';
   else if(soil!==null&&soil<thr) nx='soil dry — watering pending';
@@ -820,22 +841,18 @@ function showScr(name,title){
 setInterval(()=>{
   const t=new Date().toTimeString().slice(0,8);
   document.getElementById('clk').textContent=t;
-  document.getElementById('prtc').textContent=t;
 
   if(S.cool&&S.coolSec>0){S.coolSec--;if(S.coolSec<=0)S.cool=false;}
-  if(S.cool)document.getElementById('pcool').textContent=S.coolSec>0?S.coolSec+'s':'active';
-  else document.getElementById('pcool').textContent='clear';
 
   // zero flow if no flow message received in 3 seconds
   if(S.conn && S.flow>0 && (Date.now()-S.lastFlowMsg)>3000){
     S.flow=0;
     hist.flow.push({t:Date.now(),v:0});
-    dash();
   }
 
-  // infer pump stopped if no 'Watering' message in 4 seconds (sent every PHONE_NOTIFICATION_DELAY)
+  // infer pump stopped if no 'Watering' message in 4 seconds
   if(S.conn && S.pump && S.lastWateringMsg>0 && (Date.now()-S.lastWateringMsg)>4000){
-    S.pump=false;S.mode='IDLE';
+    S.pump=false;S.mode='IDLE';S.waterStartedAt=0;
     if(hist.pumpStart){
       const dur=(Date.now()-hist.pumpStart)/1000;
       hist.events.push({t:hist.pumpStart,type:'auto',dur,vol:S.flow*(dur/60)});
@@ -843,8 +860,10 @@ setInterval(()=>{
       hist.pumpStart=null;
     }
     S.cool=true;
-    dash();
   }
+
+  // redraw dash every second — keeps countdowns ticking live
+  dash();
 },1000);
 
 // ── INIT ──────────────────────────────────────
