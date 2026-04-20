@@ -174,7 +174,7 @@ canvas{display:block;width:100%;height:100%}
 <div id="app">
   <div id="hdr">
     <div class="hd-top">
-      <div class="hd-path">WHITE_FOX_CABIN / IRRIGATION <span style="color:#333;margin-left:8px">v1.0.3</span></div>
+      <div class="hd-path">WHITE_FOX_CABIN / IRRIGATION <span style="color:#333;margin-left:8px">v1.0.4</span></div>
       <div class="hd-ble" onclick="toggleBle()">
         <div class="ble-dot" id="bdot"></div>
         <span id="blbl">CONNECT</span>
@@ -311,7 +311,8 @@ const S = {
   cool:false, coolSec:0, rtc:'',
   waterRemainSec:0,
   waterStartedAt:0,
-  waterDuration:0,  // ms — which duration is currently active
+  waterDuration:0,
+  rtcReceivedAt:0,  // phone timestamp when RTC value was received
   // three config tiers:
   factory:{},    // compile-time constants — only restored by factory reset
   persistent:{}, // last saved config — what loads on boot
@@ -475,11 +476,11 @@ function parseLine(raw){
     if(!S.pump){
       S.pump=true;S.mode='RUNNING';
       if(!hist.pumpStart)hist.pumpStart=Date.now();
-      // use auto watering duration for ESP-NOW triggered cycles
-      S.waterDuration=S.working.WATERING_DURATION||60000;
+      // capture duration now — use working value or factory fallback, never 0
+      const dur=S.working.WATERING_DURATION;
+      S.waterDuration=(dur&&dur>0)?dur:60000;
     }
     if(S.waterStartedAt===0) S.waterStartedAt=Date.now();
-    // re-detect emergency mode from soil level
     if(S.soilPct!==null&&S.soilPct<(S.working.EMERGENCY_THRESHOLD_PERCENT||20)) S.mode='EMERGENCY';
     S.lastWateringMsg=Date.now();
     dash();return;
@@ -494,13 +495,14 @@ function parseLine(raw){
   m=line.match(/(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})/);
   if(m){
     S.rtc=m[1];
+    S.rtcReceivedAt=Date.now(); // store when we received it so we can tick forward
     document.getElementById('rtcdisp').textContent=m[1];
-    // check drift vs phone time
     const rtcMs=new Date(m[1].replace(' ','T')).getTime();
     const driftMin=Math.abs(Date.now()-rtcMs)/60000;
     const warn=document.getElementById('rtc-drift-warn');
     if(warn) warn.style.display=driftMin>10?'inline':'none';
-    log('RTC: '+m[1]+(driftMin>10?' ⚠ drift '+Math.round(driftMin)+'min':''),driftMin<=10,driftMin>10);
+    if(driftMin>10) log('⚠ RTC drift: '+Math.round(driftMin)+'min from phone time',false,true);
+    else log('RTC: '+m[1],true);
     return;
   }
 
@@ -586,22 +588,22 @@ function dash(){
   const h=now.getHours();
   const inWindow=(h>=ws&&h<we);
   document.getElementById('pwin').textContent=pad(ws)+':00 - '+pad(we)+':00'+(inWindow?' (open)':' (closed)');
+  // cooldown row always shows its own countdown — status only adds context
   document.getElementById('pcool').textContent=S.cool?(S.coolSec>0?fmtCountdown(S.coolSec)+' remaining':'active'):'clear';
 
-  // compute watering time remaining from local clock
+  // status field — watering shows countdown, cooldown shows soil context only (time already in cooldown row)
   let nx='waiting for sensor';
   if(S.pump){
-    // use tracked duration — waterDuration set on manual start or first Watering msg
-    const dur=S.waterDuration>0?S.waterDuration:(S.working.WATERING_DURATION||60000);
+    const dur=(S.waterDuration&&S.waterDuration>0)?S.waterDuration:60000;
     const elapsedSec=S.waterStartedAt>0?Math.floor((Date.now()-S.waterStartedAt)/1000):0;
     const remSec=Math.max(0,Math.floor(dur/1000)-elapsedSec);
     const modeLabel=S.mode==='EMERGENCY'?'EMERGENCY ':'';
     nx=modeLabel+'watering — '+fmtCountdown(remSec)+' remaining';
   } else if(S.cool){
-    const remTxt=S.coolSec>0?fmtCountdown(S.coolSec)+' remaining':'finishing';
-    if(soil!==null&&soil<emg) nx='EMERGENCY dry ('+soil+'%) — cooldown '+remTxt;
-    else if(soil!==null&&soil<thr) nx='soil dry — cooldown '+remTxt;
-    else nx='cooldown — '+remTxt;
+    // cooldown time already shown above — status just explains why
+    if(soil!==null&&soil<emg) nx='EMERGENCY dry ('+soil+'%) — see cooldown above';
+    else if(soil!==null&&soil<thr) nx='soil dry — waiting for cooldown';
+    else nx='post-watering cooldown active';
   } else if(soil!==null&&soil<emg) nx='EMERGENCY — '+soil+'% below '+emg+'%';
   else if(!inWindow&&soil!==null&&soil<thr) nx='soil dry — window opens at '+pad(ws)+':00';
   else if(!inWindow) nx='window opens at '+pad(ws)+':00';
@@ -868,13 +870,27 @@ function showScr(name,title){
   document.getElementById('tab-'+name).classList.add('on');
   document.getElementById('stitle').textContent=title;
   if(name==='hist'){setTimeout(drawHist,50);}
-  if(name==='cfg'){renderCfg();sendCmd('time');}
+  if(name==='cfg'){renderCfg();}
 }
 
 // ── CLOCK ─────────────────────────────────────
 setInterval(()=>{
   const t=new Date().toTimeString().slice(0,8);
   document.getElementById('clk').textContent=t;
+
+  // tick RTC display forward from last received value
+  if(S.rtc&&S.rtcReceivedAt>0){
+    const elapsedSec=Math.floor((Date.now()-S.rtcReceivedAt)/1000);
+    const base=new Date(S.rtc.replace(' ','T')).getTime();
+    const ticked=new Date(base+elapsedSec*1000);
+    const ts=ticked.getFullYear()+'-'+
+      String(ticked.getMonth()+1).padStart(2,'0')+'-'+
+      String(ticked.getDate()).padStart(2,'0')+' '+
+      String(ticked.getHours()).padStart(2,'0')+':'+
+      String(ticked.getMinutes()).padStart(2,'0')+':'+
+      String(ticked.getSeconds()).padStart(2,'0');
+    document.getElementById('rtcdisp').textContent=ts;
+  }
 
   if(S.cool&&S.coolSec>0){S.coolSec--;if(S.coolSec<=0)S.cool=false;}
 
