@@ -224,7 +224,7 @@ canvas{display:block;width:100%;height:100%}
           <span class="pk">status</span><span class="pv" id="pnext">waiting</span>
         </div>
         <div class="brow">
-          <button class="btn bon" onclick="sendCmd('water on')">▶ WATER ON</button>
+          <button class="btn bon" onclick="manualWaterOn()">▶ WATER ON</button>
           <button class="btn boff" onclick="sendCmd('water off')">■ WATER OFF</button>
         </div>
       </div>
@@ -307,8 +307,9 @@ const S = {
   conn:false, soilPct:null, soilAdc:null,
   flow:0, pump:false, mode:'IDLE',
   cool:false, coolSec:0, rtc:'',
-  waterRemainSec:0,  // countdown while pump is running
-  waterStartedAt:0,  // local timestamp when pump started
+  waterRemainSec:0,
+  waterStartedAt:0,
+  waterDuration:0,  // ms — which duration is currently active
   // three config tiers:
   factory:{},    // compile-time constants — only restored by factory reset
   persistent:{}, // last saved config — what loads on boot
@@ -472,8 +473,9 @@ function parseLine(raw){
     if(!S.pump){
       S.pump=true;S.mode='RUNNING';
       if(!hist.pumpStart)hist.pumpStart=Date.now();
-      S.waterStartedAt=Date.now();
+      S.waterDuration=S.working.WATERING_DURATION||60000;
     }
+    if(S.waterStartedAt===0) S.waterStartedAt=Date.now();
     S.lastWateringMsg=Date.now();
     dash();return;
   }
@@ -573,7 +575,8 @@ function dash(){
   // compute watering time remaining from local clock
   let nx='waiting for sensor';
   if(S.pump){
-    const dur=S.working.WATERING_DURATION||60000;
+    // use tracked duration — waterDuration set on manual start or first Watering msg
+    const dur=S.waterDuration>0?S.waterDuration:(S.working.WATERING_DURATION||60000);
     const elapsedSec=S.waterStartedAt>0?Math.floor((Date.now()-S.waterStartedAt)/1000):0;
     const remSec=Math.max(0,Math.floor(dur/1000)-elapsedSec);
     const modeLabel=S.mode==='EMERGENCY'?'EMERGENCY ':'';
@@ -794,6 +797,13 @@ function doReset(){
   log('Factory defaults loaded to RAM — send save config to persist',false,false);
 }
 
+function manualWaterOn(){
+  S.waterDuration=S.working.MANUAL_WATERING_DURATION||60000;
+  S.waterStartedAt=Date.now();
+  S.pump=true;S.mode='RUNNING';
+  sendCmd('water on');
+}
+
 function syncRtcNow(){
   const now=new Date();
   const yr=now.getFullYear();
@@ -852,7 +862,7 @@ setInterval(()=>{
 
   // infer pump stopped if no 'Watering' message in 4 seconds
   if(S.conn && S.pump && S.lastWateringMsg>0 && (Date.now()-S.lastWateringMsg)>4000){
-    S.pump=false;S.mode='IDLE';S.waterStartedAt=0;
+    S.pump=false;S.mode='IDLE';S.waterStartedAt=0;S.waterDuration=0;
     if(hist.pumpStart){
       const dur=(Date.now()-hist.pumpStart)/1000;
       hist.events.push({t:hist.pumpStart,type:'auto',dur,vol:S.flow*(dur/60)});
