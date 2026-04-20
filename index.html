@@ -98,11 +98,11 @@ canvas{display:block;width:100%;height:100%}
 .brow{display:grid;grid-template-columns:1fr 1fr;gap:7px}
 .btn{padding:10px;border:none;border-radius:4px;font-family:var(--f);font-size:11px;font-weight:bold;letter-spacing:.07em;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px}
 .bon{background:var(--bg3);color:var(--dim);border:1px solid var(--b2)}
-.bon.active{background:var(--green);color:#000;border-color:var(--green)}
-.bon:active{opacity:.8}
+.bon.active{background:rgba(0,180,130,0.18);color:rgba(0,212,160,0.8);border-color:rgba(0,180,130,0.35)}
+.bon:active{opacity:.7}
 .boff{background:var(--bg3);color:var(--dim);border:1px solid var(--b2)}
-.boff.active{background:rgba(224,80,80,0.2);color:var(--red);border-color:rgba(224,80,80,0.5)}
-.boff:active{opacity:.8}
+.boff.active{background:rgba(180,60,60,0.15);color:rgba(224,80,80,0.7);border-color:rgba(180,60,60,0.3)}
+.boff:active{opacity:.7}
 
 /* LOG */
 .log{background:var(--bg);border:1px solid var(--b);border-radius:3px;padding:7px;font-size:10px;line-height:1.6;max-height:88px;overflow-y:auto}
@@ -174,7 +174,7 @@ canvas{display:block;width:100%;height:100%}
 <div id="app">
   <div id="hdr">
     <div class="hd-top">
-      <div class="hd-path">WHITE_FOX_CABIN / IRRIGATION <span style="color:#333;margin-left:8px">v1.0.2</span></div>
+      <div class="hd-path">WHITE_FOX_CABIN / IRRIGATION <span style="color:#333;margin-left:8px">v1.0.3</span></div>
       <div class="hd-ble" onclick="toggleBle()">
         <div class="ble-dot" id="bdot"></div>
         <span id="blbl">CONNECT</span>
@@ -203,8 +203,8 @@ canvas{display:block;width:100%;height:100%}
         <div><span class="bv" id="sval">--</span><span class="bu">%</span><span class="adc" id="sadc">adc --</span></div>
         <div class="tbar"><div class="tfill" id="sbar" style="width:0%"></div></div>
         <div class="tmarks">
-          <div class="tm tm-e" id="mke" style="left:20%">E</div>
-          <div class="tm tm-t" id="mkt" style="left:50%">T</div>
+          <div class="tm tm-e" id="mke" style="left:20%">EMRG</div>
+          <div class="tm tm-t" id="mkt" style="left:50%">THRESHOLD</div>
         </div>
         <div class="spk"><canvas id="sspk"></canvas></div>
       </div>
@@ -260,10 +260,10 @@ canvas{display:block;width:100%;height:100%}
     <!-- CFG -->
     <div class="scr" id="scr-cfg">
       <div class="rtcc">
-        <div class="rtcl">RTC_TIME</div>
+        <div class="rtcl">RTC_TIME <span id="rtc-drift-warn" style="color:var(--amber);font-size:9px;margin-left:8px;display:none">⚠ DRIFTED &gt;10min FROM PHONE</span></div>
         <div class="rtct" id="rtcdisp">---- -- -- --:--:--</div>
         <div style="display:flex;gap:7px;margin-bottom:7px">
-          <button class="rtcbtn" onclick="syncRtcNow()">⟳ SYNC TO PHONE TIME</button>
+          <button class="rtcbtn" onclick="syncRtcNow()">⟳ SYNC SENSOR TO PHONE TIME</button>
           <button class="rtcbtn rtcbtn-dim" onclick="sendCmd('time')">↺ REFRESH</button>
         </div>
         <input class="rtci" id="rtci" placeholder="manual: set time yyyy mm dd hh mm ss →" onkeydown="rtcKey(event)">
@@ -279,8 +279,8 @@ canvas{display:block;width:100%;height:100%}
 
   <div id="tabs">
     <div class="tab on" id="tab-dash" onclick="showScr('dash','Dashboard')">DASH</div>
-    <div class="tab" id="tab-hist" onclick="showScr('hist','History')">HIST</div>
-    <div class="tab" id="tab-cfg" onclick="showScr('cfg','Settings')">CFG</div>
+    <div class="tab" id="tab-hist" onclick="showScr('hist','History')">HISTORY</div>
+    <div class="tab" id="tab-cfg" onclick="showScr('cfg','Settings')">SETTINGS</div>
   </div>
 </div>
 
@@ -475,9 +475,12 @@ function parseLine(raw){
     if(!S.pump){
       S.pump=true;S.mode='RUNNING';
       if(!hist.pumpStart)hist.pumpStart=Date.now();
+      // use auto watering duration for ESP-NOW triggered cycles
       S.waterDuration=S.working.WATERING_DURATION||60000;
     }
     if(S.waterStartedAt===0) S.waterStartedAt=Date.now();
+    // re-detect emergency mode from soil level
+    if(S.soilPct!==null&&S.soilPct<(S.working.EMERGENCY_THRESHOLD_PERCENT||20)) S.mode='EMERGENCY';
     S.lastWateringMsg=Date.now();
     dash();return;
   }
@@ -488,12 +491,16 @@ function parseLine(raw){
 
   // RTC time — check BEFORE config line regex (both start with digits)
   // Matches "2026-04-18 14:30:22" anywhere in line
-  // Handles bare timestamp, "Time: ...", "RTC updated" followup, etc.
   m=line.match(/(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})/);
   if(m){
     S.rtc=m[1];
     document.getElementById('rtcdisp').textContent=m[1];
-    log('RTC: '+m[1],true);
+    // check drift vs phone time
+    const rtcMs=new Date(m[1].replace(' ','T')).getTime();
+    const driftMin=Math.abs(Date.now()-rtcMs)/60000;
+    const warn=document.getElementById('rtc-drift-warn');
+    if(warn) warn.style.display=driftMin>10?'inline':'none';
+    log('RTC: '+m[1]+(driftMin>10?' ⚠ drift '+Math.round(driftMin)+'min':''),driftMin<=10,driftMin>10);
     return;
   }
 
@@ -861,7 +868,7 @@ function showScr(name,title){
   document.getElementById('tab-'+name).classList.add('on');
   document.getElementById('stitle').textContent=title;
   if(name==='hist'){setTimeout(drawHist,50);}
-  if(name==='cfg'){renderCfg();}
+  if(name==='cfg'){renderCfg();sendCmd('time');}
 }
 
 // ── CLOCK ─────────────────────────────────────
