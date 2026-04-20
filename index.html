@@ -97,12 +97,12 @@ canvas{display:block;width:100%;height:100%}
 .pv{color:var(--green)}
 .brow{display:grid;grid-template-columns:1fr 1fr;gap:7px}
 .btn{padding:10px;border:none;border-radius:4px;font-family:var(--f);font-size:11px;font-weight:bold;letter-spacing:.07em;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px}
-.bon{background:rgba(0,212,160,0.15);color:var(--dim);border:1px solid rgba(0,212,160,0.2)}
+.bon{background:var(--bg3);color:var(--dim);border:1px solid var(--b2)}
 .bon.active{background:var(--green);color:#000;border-color:var(--green)}
-.bon:active{background:var(--green2);color:#000}
-.boff{background:rgba(224,80,80,0.08);color:var(--dim);border:1px solid rgba(224,80,80,0.15)}
-.boff.active{background:rgba(224,80,80,0.25);color:var(--red);border-color:rgba(224,80,80,0.4)}
-.boff:active{background:rgba(224,80,80,0.3)}
+.bon:active{opacity:.8}
+.boff{background:var(--bg3);color:var(--dim);border:1px solid var(--b2)}
+.boff.active{background:rgba(224,80,80,0.2);color:var(--red);border-color:rgba(224,80,80,0.5)}
+.boff:active{opacity:.8}
 
 /* LOG */
 .log{background:var(--bg);border:1px solid var(--b);border-radius:3px;padding:7px;font-size:10px;line-height:1.6;max-height:88px;overflow-y:auto}
@@ -174,7 +174,7 @@ canvas{display:block;width:100%;height:100%}
 <div id="app">
   <div id="hdr">
     <div class="hd-top">
-      <div class="hd-path">WHITE_FOX_CABIN / IRRIGATION <span style="color:#333;margin-left:8px">v1.0.1</span></div>
+      <div class="hd-path">WHITE_FOX_CABIN / IRRIGATION <span style="color:#333;margin-left:8px">v1.0.2</span></div>
       <div class="hd-ble" onclick="toggleBle()">
         <div class="ble-dot" id="bdot"></div>
         <span id="blbl">CONNECT</span>
@@ -227,7 +227,7 @@ canvas{display:block;width:100%;height:100%}
         </div>
         <div class="brow">
           <button class="btn bon" onclick="manualWaterOn()">▶ WATER ON</button>
-          <button class="btn boff" onclick="sendCmd('water off')">■ WATER OFF</button>
+          <button class="btn boff" onclick="manualWaterOff()">■ WATER OFF</button>
         </div>
       </div>
 
@@ -522,7 +522,10 @@ function parseLine(raw){
       hist.bands.push({s:hist.pumpStart,e:Date.now()});
       hist.pumpStart=null;
     }
-    S.pump=false;S.mode='IDLE';S.cool=true;dash();return;
+    S.pump=false;S.mode='IDLE';S.waterStartedAt=0;S.waterDuration=0;
+    S.cool=true;
+    S.coolSec=Math.floor((S.working.WATERING_COOLDOWN||1800000)/1000);
+    dash();return;
   }
 
   if(line.includes('EMERGENCY')){S.mode='EMERGENCY';S.pump=true;if(!hist.pumpStart)hist.pumpStart=Date.now();dash();return;}
@@ -810,6 +813,14 @@ function manualWaterOn(){
   sendCmd('water on');
 }
 
+function manualWaterOff(){
+  S.pump=false;S.mode='IDLE';S.waterStartedAt=0;S.waterDuration=0;
+  S.cool=true;
+  S.coolSec=Math.floor((S.working.WATERING_COOLDOWN||1800000)/1000);
+  sendCmd('water off');
+  dash();
+}
+
 function syncRtcNow(){
   const now=new Date();
   const yr=now.getFullYear();
@@ -869,6 +880,9 @@ setInterval(()=>{
   // infer pump stopped if no 'Watering' message in 4 seconds
   if(S.conn && S.pump && S.lastWateringMsg>0 && (Date.now()-S.lastWateringMsg)>4000){
     S.pump=false;S.mode='IDLE';S.waterStartedAt=0;S.waterDuration=0;
+    // start cooldown countdown from working config
+    S.cool=true;
+    S.coolSec=Math.floor((S.working.WATERING_COOLDOWN||1800000)/1000);
     if(hist.pumpStart){
       const dur=(Date.now()-hist.pumpStart)/1000;
       hist.events.push({t:hist.pumpStart,type:'auto',dur,vol:S.flow*(dur/60)});
