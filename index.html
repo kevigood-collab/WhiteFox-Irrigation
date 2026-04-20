@@ -126,6 +126,10 @@ canvas{display:block;width:100%;height:100%}
 .rtcc{background:var(--bg2);border:1px solid var(--b);border-radius:5px;padding:11px;margin-bottom:9px}
 .rtcl{font-size:9px;letter-spacing:.15em;color:var(--dim);margin-bottom:5px}
 .rtct{font-size:20px;font-weight:bold;color:var(--white);margin-bottom:7px;letter-spacing:-.01em}
+.rtcbtn{flex:1;background:var(--green);color:#000;border:none;border-radius:3px;padding:7px 8px;font-family:var(--f);font-size:10px;font-weight:bold;letter-spacing:.06em;cursor:pointer}
+.rtcbtn:active{background:var(--green2)}
+.rtcbtn-dim{background:var(--bg3);color:var(--tx);border:1px solid var(--b2)}
+.rtcbtn-dim:active{background:var(--b)}
 .rtci{width:100%;background:var(--bg);border:1px solid var(--b2);border-radius:3px;padding:7px 8px;font-family:var(--f);font-size:10px;color:var(--tx)}
 .rtci:focus{outline:none;border-color:var(--green)}
 .cfgh{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px;padding:0 3px}
@@ -214,10 +218,10 @@ canvas{display:block;width:100%;height:100%}
         <div class="ch"><div class="cl">PUMP_STATE</div><div class="cs" id="pshdr"><div class="sd s-id"></div><span id="pstxt">OFF</span></div></div>
         <div class="pl"><div class="pd" id="pdot"></div><div class="plb" id="plbl">IDLE</div></div>
         <div class="pm">
-          <span class="pk">rtc</span><span class="pv" id="prtc">--:--:--</span>
+          <span class="pk">sensor time</span><span class="pv" id="prtc">--:--:--</span>
           <span class="pk">cooldown</span><span class="pv" id="pcool">clear</span>
-          <span class="pk">win</span><span class="pv" id="pwin">07:00-11:00</span>
-          <span class="pk">next</span><span class="pv" id="pnext">waiting</span>
+          <span class="pk">water window</span><span class="pv" id="pwin">07:00-11:00</span>
+          <span class="pk">status</span><span class="pv" id="pnext">waiting</span>
         </div>
         <div class="brow">
           <button class="btn bon" onclick="sendCmd('water on')">▶ WATER ON</button>
@@ -256,7 +260,11 @@ canvas{display:block;width:100%;height:100%}
       <div class="rtcc">
         <div class="rtcl">RTC_TIME</div>
         <div class="rtct" id="rtcdisp">---- -- -- --:--:--</div>
-        <input class="rtci" id="rtci" placeholder="set time yyyy mm dd hh mm ss →" onkeydown="rtcKey(event)">
+        <div style="display:flex;gap:7px;margin-bottom:7px">
+          <button class="rtcbtn" onclick="syncRtcNow()">⟳ SYNC TO PHONE TIME</button>
+          <button class="rtcbtn rtcbtn-dim" onclick="sendCmd('time')">↺ REFRESH</button>
+        </div>
+        <input class="rtci" id="rtci" placeholder="manual: set time yyyy mm dd hh mm ss →" onkeydown="rtcKey(event)">
       </div>
       <div class="cfgh"><div class="cfgl">CONFIG · 14 VARS</div><div class="advt" id="advt" onclick="togAdv()">+ advanced (7)</div></div>
       <div class="cfglist" id="cml"></div>
@@ -462,11 +470,14 @@ function parseLine(raw){
   m=line.match(/ESP-NOW rx raw:\s*(\d+)/);
   if(m){S.soilAdc=+m[1];dash();return;}
 
-  // RTC time — matches bare timestamp or "Time: 2026-04-18 14:30:22"
+  // RTC time — check BEFORE config line regex (both start with digits)
+  // Matches "2026-04-18 14:30:22" anywhere in line
+  // Handles bare timestamp, "Time: ...", "RTC updated" followup, etc.
   m=line.match(/(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})/);
   if(m){
     S.rtc=m[1];
     document.getElementById('rtcdisp').textContent=m[1];
+    log('RTC: '+m[1],true);
     return;
   }
 
@@ -542,16 +553,20 @@ function dash(){
 
   const now=new Date();
   document.getElementById('prtc').textContent=now.toTimeString().slice(0,8);
-  document.getElementById('pwin').textContent=pad(ws)+':00-'+pad(we)+':00';
-  document.getElementById('pcool').textContent=S.cool?(S.coolSec>0?S.coolSec+'s':'active'):'clear';
-
   const h=now.getHours();
-  let nx='waiting';
-  if(S.pump) nx='running';
-  else if(S.cool) nx='cooldown';
-  else if(!(h>=ws&&h<we)) nx='window '+pad(ws)+':00';
-  else if(soil!==null&&soil<thr) nx='pending';
-  else nx='soil OK, idle';
+  const inWindow=(h>=ws&&h<we);
+  document.getElementById('pwin').textContent=pad(ws)+':00 - '+pad(we)+':00'+(inWindow?' (open)':' (closed)');
+  document.getElementById('pcool').textContent=S.cool?(S.coolSec>0?S.coolSec+'s remaining':'active'):'clear';
+
+  let nx='waiting for sensor';
+  if(S.pump&&S.mode==='EMERGENCY') nx='EMERGENCY WATERING';
+  else if(S.pump) nx='watering now';
+  else if(S.cool) nx='cooldown — waiting before next check';
+  else if(soil!==null&&soil<emg) nx='EMERGENCY — below '+emg+'%';
+  else if(!inWindow&&soil!==null&&soil<thr) nx='soil dry — window opens at '+pad(ws)+':00';
+  else if(!inWindow) nx='window opens at '+pad(ws)+':00';
+  else if(soil!==null&&soil<thr) nx='soil dry — watering pending';
+  else if(soil!==null) nx='soil OK — monitoring';
   document.getElementById('pnext').textContent=nx;
 
   drawSparks();
@@ -756,6 +771,18 @@ function doReset(){
   sendCmd('reset');
   renderCfg();dash();
   log('Factory defaults loaded to RAM — send save config to persist',false,false);
+}
+
+function syncRtcNow(){
+  const now=new Date();
+  const yr=now.getFullYear();
+  const mo=now.getMonth()+1;
+  const dy=now.getDate();
+  const hr=now.getHours();
+  const mn=now.getMinutes();
+  const sc=now.getSeconds();
+  sendCmd('set time '+yr+' '+mo+' '+dy+' '+hr+' '+mn+' '+sc);
+  log('RTC synced to phone time',true);
 }
 
 function rtcKey(e){
