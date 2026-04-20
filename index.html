@@ -156,6 +156,7 @@ canvas{display:block;width:100%;height:100%}
 .mt{font-size:12px;font-weight:bold;color:var(--white);margin-bottom:3px;word-break:break-all}
 .md{font-size:10px;color:var(--dim);margin-bottom:10px;line-height:1.5}
 .mp{font-size:9px;color:var(--green);background:var(--bg);border:1px solid var(--b);border-radius:3px;padding:5px 7px;margin-bottom:10px;font-family:var(--f);letter-spacing:.04em}
+.munit{font-size:10px;color:var(--green);letter-spacing:.06em;margin-bottom:8px}
 .mi{width:100%;background:var(--bg);border:1px solid var(--b2);border-radius:4px;padding:10px 11px;font-family:var(--f);font-size:18px;color:var(--white);margin-bottom:11px}
 .mi:focus{outline:none;border-color:var(--green)}
 .mbtns{display:grid;grid-template-columns:1fr 1fr;gap:7px}
@@ -277,7 +278,7 @@ canvas{display:block;width:100%;height:100%}
   <div class="ms">
     <div class="mt" id="mtitle"></div>
     <div class="md" id="mdesc"></div>
-    <div class="mp" id="mprev"></div>
+    <div class="munit" id="munit"></div>
     <input class="mi" id="minput" type="number" inputmode="decimal" onkeydown="mkey(event)">
     <div class="mbtns">
       <button class="mcanc" onclick="closeM()">CANCEL</button>
@@ -313,20 +314,20 @@ let dev=null, srv=null, txC=null, rxC=null, editN=null;
 
 // ── CONFIG SCHEMA ──────────────────────────────
 const SCHEMA = [
-  {n:1, k:'WATERING_DURATION',          d:'Auto cycle on-time. 60000=1min',    f:fms, adv:false},
-  {n:2, k:'WATERING_COOLDOWN',          d:'Wait after watering. 1800000=30min', f:fms, adv:false},
-  {n:3, k:'MANUAL_WATERING_DURATION',   d:'BLE on-time. 60000=1min',            f:fms, adv:false},
-  {n:4, k:'MOISTURE_THRESHOLD_PERCENT', d:'Normal trigger %. Below=water',      f:v=>v+'%', adv:false},
-  {n:5, k:'WATER_WINDOW_START',         d:'Allowed hours start (0-23)',          f:v=>pad(v)+':00', adv:false},
-  {n:6, k:'WATER_WINDOW_END',           d:'Allowed hours end (0-23)',            f:v=>pad(v)+':00', adv:false},
-  {n:7, k:'EMERGENCY_THRESHOLD_PERCENT',d:'Water anytime below this %',          f:v=>v+'%', adv:false},
-  {n:8, k:'WET_ADC',                    d:'Sensor ADC saturated (calibrate)',    f:String, adv:true},
-  {n:9, k:'DRY_ADC',                    d:'Sensor ADC dry air (calibrate)',      f:String, adv:true},
-  {n:10,k:'SOIL_SMOOTHING_FACTOR',      d:'Soil smoothing 1-100 (100=raw)',      f:String, adv:true},
-  {n:11,k:'FLOW_SMOOTHING_FACTOR',      d:'Flow smoothing 1-100 (100=raw)',      f:String, adv:true},
-  {n:12,k:'FLOW_PULSE',                 d:'GR-201 pulses per L/min',             f:String, adv:true},
-  {n:13,k:'FLOW_WINDOW',                d:'Pulse counting window ms',             f:String, adv:true},
-  {n:14,k:'PHONE_NOTIFICATION_DELAY',   d:'BLE report rate ms',                   f:String, adv:true},
+  {n:1, k:'WATERING_DURATION',          d:'Auto cycle on-time',           f:fmin, ms:true,  adv:false},
+  {n:2, k:'WATERING_COOLDOWN',          d:'Wait after watering',          f:fmin, ms:true,  adv:false},
+  {n:3, k:'MANUAL_WATERING_DURATION',   d:'BLE manual on-time',           f:fmin, ms:true,  adv:false},
+  {n:4, k:'MOISTURE_THRESHOLD_PERCENT', d:'Normal trigger %. Below=water',f:v=>v+'%', adv:false},
+  {n:5, k:'WATER_WINDOW_START',         d:'Allowed hours start (0-23)',   f:v=>pad(v)+':00', adv:false},
+  {n:6, k:'WATER_WINDOW_END',           d:'Allowed hours end (0-23)',     f:v=>pad(v)+':00', adv:false},
+  {n:7, k:'EMERGENCY_THRESHOLD_PERCENT',d:'Water anytime below this %',   f:v=>v+'%', adv:false},
+  {n:8, k:'WET_ADC',                    d:'Sensor ADC saturated (calibrate)', f:String, adv:true},
+  {n:9, k:'DRY_ADC',                    d:'Sensor ADC dry air (calibrate)',   f:String, adv:true},
+  {n:10,k:'SOIL_SMOOTHING_FACTOR',      d:'Soil smoothing 1-100 (100=raw)',   f:String, adv:true},
+  {n:11,k:'FLOW_SMOOTHING_FACTOR',      d:'Flow smoothing 1-100 (100=raw)',   f:String, adv:true},
+  {n:12,k:'FLOW_PULSE',                 d:'GR-201 pulses per L/min',          f:String, adv:true},
+  {n:13,k:'FLOW_WINDOW',                d:'Pulse counting window ms',          f:String, adv:true},
+  {n:14,k:'PHONE_NOTIFICATION_DELAY',   d:'BLE report rate ms',                f:String, adv:true},
 ];
 
 // Factory defaults — mirrors FACTORY_* constants in firmware
@@ -352,6 +353,15 @@ function fms(v){
   if(v>=60000) return Math.round(v/60000)+'m';
   return (v/1000).toFixed(0)+'s';
 }
+function fmin(v){
+  v=Number(v);
+  const min=v/60000;
+  if(min>=60) return (min/60).toFixed(2)+'h ('+min.toFixed(0)+'min)';
+  if(min===Math.floor(min)) return min+'min';
+  return min.toFixed(1)+'min';
+}
+function msToMin(ms){ return +(ms/60000).toFixed(4); }
+function minToMs(min){ return Math.round(parseFloat(min)*60000); }
 function pad(v){return String(v).padStart(2,'0')}
 
 // ── BLE ───────────────────────────────────────
@@ -452,9 +462,13 @@ function parseLine(raw){
   m=line.match(/ESP-NOW rx raw:\s*(\d+)/);
   if(m){S.soilAdc=+m[1];dash();return;}
 
-  // RTC time
-  m=line.match(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})/);
-  if(m){S.rtc=m[1];document.getElementById('rtcdisp').textContent=m[1];return;}
+  // RTC time — matches bare timestamp or "Time: 2026-04-18 14:30:22"
+  m=line.match(/(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})/);
+  if(m){
+    S.rtc=m[1];
+    document.getElementById('rtcdisp').textContent=m[1];
+    return;
+  }
 
   // Config value line e.g. " 1 WATERING_DURATION:  60000"
   m=line.match(/^\s*(\d+)\s+([A-Z_]+)[:\s]+(.+)/);
@@ -698,26 +712,25 @@ function openEdit(n){
   const cur=S.working[s.k]!==undefined?S.working[s.k]:S.factory[s.k];
   const saved=S.persistent[s.k]!==undefined?S.persistent[s.k]:S.factory[s.k];
   const fac=S.factory[s.k];
+  const isMsVar=s.ms===true;
+  const displayVal=isMsVar?msToMin(cur):cur;
   document.getElementById('mtitle').textContent=s.k;
   document.getElementById('mdesc').textContent=s.d+
     '\nSaved: '+s.f(saved)+'  Factory: '+s.f(fac);
-  document.getElementById('mprev').textContent='set '+n+' '+cur+' (temporary)';
-  document.getElementById('minput').value=cur;
+  document.getElementById('munit').textContent=isMsVar?'Enter value in MINUTES':'Enter value';
+  document.getElementById('minput').value=displayVal;
   document.getElementById('modal').classList.remove('hide');
   setTimeout(()=>document.getElementById('minput').focus(),150);
 }
-
-document.getElementById('minput').addEventListener('input',()=>{
-  const s=SCHEMA.find(x=>x.n===editN);
-  if(s)document.getElementById('mprev').textContent='set '+editN+' '+document.getElementById('minput').value+' (temporary)';
-});
 
 function mkey(e){if(e.key==='Enter')applyM();if(e.key==='Escape')closeM();}
 
 function applyM(){
   const s=SCHEMA.find(x=>x.n===editN);if(!s){closeM();return;}
-  const v=parseFloat(document.getElementById('minput').value);
-  if(isNaN(v)){closeM();return;}
+  const raw=parseFloat(document.getElementById('minput').value);
+  if(isNaN(raw)){closeM();return;}
+  const isMsVar=s.ms===true;
+  const v=isMsVar?minToMs(raw):raw;
   S.working[s.k]=v;
   S.dirty[s.k]=v;
   sendCmd('set '+editN+' '+v);
