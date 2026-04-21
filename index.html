@@ -22,8 +22,6 @@
 html{height:100%;background:var(--bg)}
 body{height:100%;background:var(--bg);color:var(--tx);font-family:var(--f);font-size:12px;overflow:hidden}
 #app{display:flex;flex-direction:column;height:100%;max-width:430px;margin:0 auto;position:relative}
-
-/* HEADER */
 #hdr{flex-shrink:0;padding:10px 14px 8px;background:var(--bg);border-bottom:1px solid var(--b)}
 .hd-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:2px}
 .hd-path{font-size:9px;letter-spacing:.15em;color:var(--dim)}
@@ -33,19 +31,13 @@ body{height:100%;background:var(--bg);color:var(--tx);font-family:var(--f);font-
 .hd-bot{display:flex;justify-content:space-between;align-items:baseline}
 .hd-title{font-size:20px;font-weight:bold;color:var(--white);letter-spacing:-.02em}
 .hd-clk{font-size:11px;color:var(--dim)}
-
-/* SCREENS */
 #screens{flex:1;overflow:hidden;position:relative;min-height:0}
 .scr{position:absolute;inset:0;overflow-y:auto;padding:10px 10px 70px;display:none}
 .scr.on{display:block}
 .scr.banner-pad{padding-top:52px}
-
-/* TABS */
 #tabs{flex-shrink:0;display:flex;background:var(--bg2);border-top:1px solid var(--b)}
 .tab{flex:1;padding:9px 0 11px;text-align:center;font-size:10px;letter-spacing:.12em;color:var(--dim);cursor:pointer;border-top:2px solid transparent;font-family:var(--f)}
 .tab.on{color:var(--green);border-top-color:var(--green)}
-
-/* CONNECT BANNER */
 #overlay{position:absolute;top:0;left:0;right:0;background:var(--bg3);border-bottom:1px solid var(--amber);display:flex;flex-direction:row;align-items:center;gap:10px;z-index:50;padding:8px 12px}
 #overlay.hide{display:none}
 .ov-left{flex:1;min-width:0}
@@ -53,8 +45,6 @@ body{height:100%;background:var(--bg);color:var(--tx);font-family:var(--f);font-
 .ov-sub{font-size:9px;color:var(--dim);line-height:1.4;margin-top:1px}
 .ov-btn{background:var(--green);color:#000;border:none;border-radius:3px;padding:7px 12px;font-family:var(--f);font-size:10px;font-weight:bold;letter-spacing:.08em;cursor:pointer;white-space:nowrap;flex-shrink:0}
 #err-msg{font-size:9px;color:var(--red);margin-top:2px;min-height:0}
-
-/* CARDS */
 .card{background:var(--bg2);border:1px solid var(--b);border-radius:5px;padding:11px;margin-bottom:9px}
 .ch{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px}
 .cl{font-size:9px;letter-spacing:.15em;color:var(--dim)}
@@ -65,8 +55,6 @@ body{height:100%;background:var(--bg);color:var(--tx);font-family:var(--f);font-
 .s-wa{background:var(--amber);box-shadow:0 0 5px var(--amber)}
 .s-er{background:var(--red);box-shadow:0 0 5px var(--red)}
 .s-ru{background:var(--blue);box-shadow:0 0 5px var(--blue)}
-
-/* SOIL */
 .bv{font-size:48px;font-weight:bold;color:var(--white);letter-spacing:-.03em;line-height:1}
 .bu{font-size:14px;color:var(--dim);vertical-align:super}
 .adc{font-size:9px;color:var(--dim);float:right;margin-top:3px}
@@ -78,13 +66,9 @@ body{height:100%;background:var(--bg);color:var(--tx);font-family:var(--f);font-
 .tm-t{color:var(--amber)}
 .spk{height:44px;margin-top:6px}
 canvas{display:block;width:100%;height:100%}
-
-/* FLOW */
 .fv{font-size:40px;font-weight:bold;color:var(--white);letter-spacing:-.03em;line-height:1}
 .fbar{height:3px;background:var(--bg3);border-radius:2px;margin-top:9px;overflow:hidden}
 .ffill{height:100%;background:var(--blue);transition:width .5s;border-radius:2px}
-
-/* PUMP */
 .pl{display:flex;align-items:center;gap:8px;margin-bottom:9px}
 .pd{width:10px;height:10px;border-radius:50%;background:var(--dim)}
 .pd.run{background:var(--blue);box-shadow:0 0 8px var(--blue);animation:p 1.5s infinite}
@@ -100,13 +84,9 @@ canvas{display:block;width:100%;height:100%}
 .bon:active{opacity:.7}
 .boff{background:var(--bg3);color:var(--dim);border:1px solid var(--b2)}
 .boff:active{opacity:.7}
-
-/* LOG */
 .log{background:var(--bg);border:1px solid var(--b);border-radius:3px;padding:7px;font-size:10px;line-height:1.6;max-height:88px;overflow-y:auto}
 .le{color:var(--dim)}.le.hl{color:var(--green)}.le.er{color:var(--red)}
 .lt{color:#3a3a3a}
-
-/* HIST */
 .hcw{height:170px;background:var(--bg);border:1px solid var(--b);border-radius:4px;padding:6px;margin-bottom:9px}
 .hleg{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:9px}
 .li{display:flex;align-items:center;gap:4px;font-size:9px;color:var(--dim)}
@@ -120,8 +100,6 @@ canvas{display:block;width:100%;height:100%}
 .evr{padding:7px 11px;border-bottom:1px solid var(--b);font-size:10px;display:flex;justify-content:space-between}
 .evr:last-child{border-bottom:none}
 .evm{padding:11px;text-align:center;font-size:10px;color:var(--dim)}
-
-/* CFG */
 .rtcc{background:var(--bg2);border:1px solid var(--b);border-radius:5px;padding:11px;margin-bottom:9px}
 .rtcl{font-size:9px;letter-spacing:.15em;color:var(--dim);margin-bottom:5px}
 .rtct{font-size:20px;font-weight:bold;color:var(--white);margin-bottom:7px;letter-spacing:-.01em}
@@ -151,8 +129,6 @@ canvas{display:block;width:100%;height:100%}
 .resetbar{background:var(--bg2);border:1px solid var(--b2);border-radius:4px;padding:9px;text-align:center;font-size:10px;color:var(--dim);margin-bottom:9px;cursor:pointer;letter-spacing:.05em}
 .resetbar:active{background:var(--bg3)}
 .cfgnote{font-size:9px;color:var(--dim);line-height:1.6;padding:0 3px}
-
-/* MODAL */
 #modal{position:fixed;inset:0;background:rgba(0,0,0,.88);display:flex;align-items:flex-end;z-index:200}
 #modal.hide{display:none}
 .ms{background:var(--bg2);border-top:1px solid var(--b);border-radius:12px 12px 0 0;padding:18px 14px 30px;width:100%;max-width:430px;margin:0 auto}
@@ -170,95 +146,48 @@ canvas{display:block;width:100%;height:100%}
 <div id="app">
   <div id="hdr">
     <div class="hd-top">
-      <div class="hd-path">WHITE_FOX_CABIN / IRRIGATION <span style="color:#333;margin-left:8px">v1.0.5</span></div>
-      <div class="hd-ble" onclick="toggleBle()">
-        <div class="ble-dot" id="bdot"></div>
-        <span id="blbl">CONNECT</span>
-      </div>
+      <div class="hd-path">WHITE_FOX_CABIN / IRRIGATION <span style="color:#333;margin-left:8px">v1.0.6</span></div>
+      <div class="hd-ble" onclick="toggleBle()"><div class="ble-dot" id="bdot"></div><span id="blbl">CONNECT</span></div>
     </div>
-    <div class="hd-bot">
-      <div class="hd-title" id="stitle">Dashboard</div>
-      <div class="hd-clk" id="clk">--:--:--</div>
-    </div>
+    <div class="hd-bot"><div class="hd-title" id="stitle">Dashboard</div><div class="hd-clk" id="clk">--:--:--</div></div>
   </div>
-
   <div id="screens">
-    <div id="overlay">
-      <div class="ov-left">
-        <div class="ov-title">NOT CONNECTED</div>
-        <div class="ov-sub">BLE disconnected — data offline</div>
-        <div id="err-msg"></div>
-      </div>
-      <button class="ov-btn" onclick="connectBle()">▶ CONNECT</button>
-    </div>
-
+    <div id="overlay"><div class="ov-left"><div class="ov-title">NOT CONNECTED</div><div class="ov-sub">BLE disconnected — data offline</div><div id="err-msg"></div></div><button class="ov-btn" onclick="connectBle()">▶ CONNECT</button></div>
     <div class="scr on" id="scr-dash">
       <div class="card">
         <div class="ch"><div class="cl">SOIL MOISTURE</div><div class="cs" id="sstat"><div class="sd s-id"></div><span>--</span></div></div>
         <div><span class="bv" id="sval">--</span><span class="bu">%</span><span class="adc" id="sadc">ADC RAW --</span></div>
         <div class="tbar"><div class="tfill" id="sbar" style="width:0%"></div></div>
-        <div class="tmarks">
-          <div class="tm tm-e" id="mke" style="left:20%">EMRG</div>
-          <div class="tm tm-t" id="mkt" style="left:50%">THRESHOLD</div>
-        </div>
+        <div class="tmarks"><div class="tm tm-e" id="mke" style="left:20%">EMRG</div><div class="tm tm-t" id="mkt" style="left:50%">THRESHOLD</div></div>
         <div class="spk"><canvas id="sspk"></canvas></div>
       </div>
-
       <div class="card">
         <div class="ch"><div class="cl">FLOW RATE</div><div class="cs" id="fstat"><div class="sd s-id"></div><span>IDLE</span></div></div>
         <div><span class="fv" id="fval">0.00</span><span style="font-size:12px;color:var(--dim)"> L/min</span></div>
         <div class="fbar"><div class="ffill" id="fbar" style="width:0%"></div></div>
         <div class="spk"><canvas id="fspk"></canvas></div>
       </div>
-
       <div class="card">
         <div class="ch"><div class="cl">PUMP STATE</div><div class="cs" id="pshdr"><div class="sd s-id"></div><span id="pstxt">OFF</span></div></div>
         <div class="pl"><div class="pd" id="pdot"></div><div class="plb" id="plbl">IDLE</div></div>
-        <div class="pm">
-          <span class="pk">sensor time</span><span class="pv" id="prtc">--:--:--</span>
-          <span class="pk">cooldown</span><span class="pv" id="pcool">clear</span>
-          <span class="pk">water window</span><span class="pv" id="pwin">07:00-11:00</span>
-          <span class="pk">status</span><span class="pv" id="pnext">waiting</span>
-        </div>
-        <div class="brow">
-          <button class="btn bon" onclick="manualWaterOn()">▶ WATER ON</button>
-          <button class="btn boff" onclick="manualWaterOff()">■ WATER OFF</button>
-        </div>
+        <div class="pm"><span class="pk">sensor time</span><span class="pv" id="prtc">--:--:--</span><span class="pk">cooldown</span><span class="pv" id="pcool">clear</span><span class="pk">water window</span><span class="pv" id="pwin">07:00-11:00</span><span class="pk">status</span><span class="pv" id="pnext">waiting</span></div>
+        <div class="brow"><button class="btn bon" onclick="manualWaterOn()">▶ WATER ON</button><button class="btn boff" onclick="manualWaterOff()">■ WATER OFF</button></div>
       </div>
-
-      <div class="card">
-        <div class="ch"><div class="cl">BLE LOG</div><div style="font-size:9px;color:var(--dim)">tail -f</div></div>
-        <div class="log" id="blog"><div class="le"><span class="lt">--:--:-- </span>waiting...</div></div>
-      </div>
+      <div class="card"><div class="ch"><div class="cl">BLE LOG</div><div style="font-size:9px;color:var(--dim)">tail -f</div></div><div class="log" id="blog"><div class="le"><span class="lt">--:--:-- </span>waiting...</div></div></div>
     </div>
-
     <div class="scr" id="scr-hist">
       <div class="ch" style="margin-bottom:7px;padding:0 3px"><div class="cl">TIMELINE · 24H</div><div class="cl">SOIL % · FLOW</div></div>
       <div class="hcw"><canvas id="hcnv"></canvas></div>
-      <div class="hleg">
-        <div class="li"><div class="ld" style="background:var(--green)"></div>soil %</div>
-        <div class="li"><div class="ld" style="background:var(--blue)"></div>flow</div>
-        <div class="li"><div class="ld" style="background:rgba(68,136,221,.3)"></div>pump on</div>
-        <div class="li"><div class="ld" style="background:var(--amber)"></div>threshold</div>
-        <div class="li"><div class="ld" style="background:var(--red)"></div>emergency</div>
-      </div>
-      <div class="srow">
-        <div class="sc"><div class="sl">EVENTS</div><div class="sv" id="hev">0</div></div>
-        <div class="sc"><div class="sl">AVG SOIL</div><div class="sv"><span id="havg">--</span><span class="su">%</span></div></div>
-        <div class="sc"><div class="sl">TOTAL VOL</div><div class="sv"><span id="hvol">0.0</span><span class="su">L</span></div></div>
-      </div>
+      <div class="hleg"><div class="li"><div class="ld" style="background:var(--green)"></div>soil %</div><div class="li"><div class="ld" style="background:var(--blue)"></div>flow</div><div class="li"><div class="ld" style="background:rgba(68,136,221,.3)"></div>pump on</div><div class="li"><div class="ld" style="background:var(--amber)"></div>threshold</div><div class="li"><div class="ld" style="background:var(--red)"></div>emergency</div></div>
+      <div class="srow"><div class="sc"><div class="sl">EVENTS</div><div class="sv" id="hev">0</div></div><div class="sc"><div class="sl">AVG SOIL</div><div class="sv"><span id="havg">--</span><span class="su">%</span></div></div><div class="sc"><div class="sl">TOTAL VOL</div><div class="sv"><span id="hvol">0.0</span><span class="su">L</span></div></div></div>
       <div class="cl" style="margin-bottom:5px;padding:0 3px">RECENT EVENTS</div>
       <div class="evl" id="evl"><div class="evm">no events in range</div></div>
     </div>
-
     <div class="scr" id="scr-cfg">
       <div class="rtcc">
         <div class="rtcl">RTC TIME <span id="rtc-drift-warn" style="color:var(--amber);font-size:9px;margin-left:8px;display:none">⚠ DRIFTED &gt;10min FROM PHONE</span></div>
         <div class="rtct" id="rtcdisp">---- -- -- --:--:--</div>
-        <div style="display:flex;gap:7px;margin-bottom:7px">
-          <button class="rtcbtn" onclick="syncRtcNow()">⟳ SYNC SENSOR TO PHONE TIME</button>
-          <button class="rtcbtn rtcbtn-dim" onclick="sendCmd('time')">↺ REFRESH</button>
-        </div>
+        <div style="display:flex;gap:7px;margin-bottom:7px"><button class="rtcbtn" onclick="syncRtcNow()">⟳ SYNC SENSOR TO PHONE TIME</button><button class="rtcbtn rtcbtn-dim" onclick="sendCmd('time')">↺ REFRESH</button></div>
         <input class="rtci" id="rtci" placeholder="manual: set time yyyy mm dd hh mm ss →" onkeydown="rtcKey(event)">
       </div>
       <div class="cfgh"><div class="cfgl">CONFIG · 14 VARS</div><div class="advt" id="advt" onclick="togAdv()">+ advanced (7)</div></div>
@@ -269,623 +198,57 @@ canvas{display:block;width:100%;height:100%}
       <div class="cfgnote">Changes are RAM only until SAVE CONFIG writes to flash.<br>Factory reset restores defaults in RAM — send SAVE CONFIG to persist.</div>
     </div>
   </div>
-
-  <div id="tabs">
-    <div class="tab on" id="tab-dash" onclick="showScr('dash','Dashboard')">DASH</div>
-    <div class="tab" id="tab-hist" onclick="showScr('hist','History')">HISTORY</div>
-    <div class="tab" id="tab-cfg" onclick="showScr('cfg','Settings')">SETTINGS</div>
-  </div>
+  <div id="tabs"><div class="tab on" id="tab-dash" onclick="showScr('dash','Dashboard')">DASH</div><div class="tab" id="tab-hist" onclick="showScr('hist','History')">HISTORY</div><div class="tab" id="tab-cfg" onclick="showScr('cfg','Settings')">SETTINGS</div></div>
 </div>
-
-<div id="modal" class="hide">
-  <div class="ms">
-    <div class="mt" id="mtitle"></div>
-    <div class="md" id="mdesc"></div>
-    <div class="munit" id="munit"></div>
-    <input class="mi" id="minput" type="number" inputmode="decimal" onkeydown="mkey(event)">
-    <div class="mbtns">
-      <button class="mcanc" onclick="closeM()">CANCEL</button>
-      <button class="maply" onclick="applyM()">APPLY</button>
-    </div>
-  </div>
-</div>
-
+<div id="modal" class="hide"><div class="ms"><div class="mt" id="mtitle"></div><div class="md" id="mdesc"></div><div class="munit" id="munit"></div><input class="mi" id="minput" type="number" inputmode="decimal" onkeydown="mkey(event)"><div class="mbtns"><button class="mcanc" onclick="closeM()">CANCEL</button><button class="maply" onclick="applyM()">APPLY</button></div></div></div>
 <script>
-window.onerror = function(msg, src, line) {
-  const em = document.getElementById('err-msg');
-  if (em) em.textContent = msg + ' (line ' + line + ')';
-  return false;
-};
-
-const S = {
-  conn:false, soilPct:null, soilAdc:null,
-  flow:0, pump:false, mode:'IDLE',
-  cool:false, coolSec:0, rtc:'',
-  waterStartedAt:0, waterDuration:0, rtcReceivedAt:0,
-  factory:{}, persistent:{}, working:{}, dirty:{},
-  advOpen:false, lastWateringMsg:0, lastFlowMsg:0
-};
-
-const hist = { soil:[], flow:[], events:[], bands:[], pumpStart:null };
-let dev=null, srv=null, txC=null, rxC=null, editN=null;
-
-const FLOW_STALE_MS = 3000;
-const WATERING_STALE_MS = 4000;
-const SOIL_SPARK_MAX = 2880;
-const FLOW_SPARK_MAX = 86400;
-
-const SCHEMA = [
-  {n:1, k:'WATERING_DURATION',          d:'Auto cycle on-time',           f:fmin, ms:true,  adv:false},
-  {n:2, k:'WATERING_COOLDOWN',          d:'Wait after watering',          f:fmin, ms:true,  adv:false},
-  {n:3, k:'MANUAL_WATERING_DURATION',   d:'BLE manual on-time',           f:fmin, ms:true,  adv:false},
-  {n:4, k:'MOISTURE_THRESHOLD_PERCENT', d:'Normal trigger %. Below=water',f:v=>v+'%', adv:false},
-  {n:5, k:'WATER_WINDOW_START',         d:'Allowed hours start (0-23)',   f:v=>pad(v)+':00', adv:false},
-  {n:6, k:'WATER_WINDOW_END',           d:'Allowed hours end (0-23)',     f:v=>pad(v)+':00', adv:false},
-  {n:7, k:'EMERGENCY_THRESHOLD_PERCENT',d:'Water anytime below this %',   f:v=>v+'%', adv:false},
-  {n:8, k:'WET_ADC',                    d:'Sensor ADC saturated (calibrate)', f:String, adv:true},
-  {n:9, k:'DRY_ADC',                    d:'Sensor ADC dry air (calibrate)',   f:String, adv:true},
-  {n:10,k:'SOIL_SMOOTHING_FACTOR',      d:'Soil smoothing 1-100 (100=raw)',   f:String, adv:true},
-  {n:11,k:'FLOW_SMOOTHING_FACTOR',      d:'Flow smoothing 1-100 (100=raw)',   f:String, adv:true},
-  {n:12,k:'FLOW_PULSE',                 d:'GR-201 pulses per L/min',          f:String, adv:true},
-  {n:13,k:'FLOW_WINDOW',                d:'Pulse counting window ms',          f:String, adv:true},
-  {n:14,k:'PHONE_NOTIFICATION_DELAY',   d:'BLE report rate ms',                f:String, adv:true},
-];
-
-const FACTORY = {
-  WATERING_DURATION:60000, WATERING_COOLDOWN:1800000,
-  MANUAL_WATERING_DURATION:60000, MOISTURE_THRESHOLD_PERCENT:50,
-  WATER_WINDOW_START:7, WATER_WINDOW_END:11,
-  EMERGENCY_THRESHOLD_PERCENT:20, WET_ADC:1400, DRY_ADC:2900,
-  SOIL_SMOOTHING_FACTOR:100, FLOW_SMOOTHING_FACTOR:20,
-  FLOW_PULSE:4.5, FLOW_WINDOW:1000, PHONE_NOTIFICATION_DELAY:1000
-};
-
-Object.assign(S.factory, FACTORY);
-Object.assign(S.persistent, FACTORY);
-Object.assign(S.working, FACTORY);
-
-function fmin(v){
-  v=Number(v); const min=v/60000;
-  if(min>=60) return (min/60).toFixed(2)+'h ('+min.toFixed(0)+'min)';
-  if(min===Math.floor(min)) return min+'min';
-  return min.toFixed(1)+'min';
-}
-function msToMin(ms){ return +(ms/60000).toFixed(4); }
-function minToMs(min){ return Math.round(parseFloat(min)*60000); }
-function fmtCountdown(sec){
-  sec=Math.max(0,Math.round(sec));
-  if(sec>=3600) return Math.floor(sec/3600)+'h '+Math.floor((sec%3600)/60)+'m';
-  if(sec>=60) return Math.floor(sec/60)+'m '+String(sec%60).padStart(2,'0')+'s';
-  return sec+'s';
-}
-function pad(v){ return String(v).padStart(2,'0'); }
-
-const SVC='00000001-0000-feed-0000-000000000000';
-const RXU='00000002-0000-feed-0000-000000000000';
-const TXU='00000003-0000-feed-0000-000000000000';
-
-function setPumpState({pump, mode, startNow=false, durationMs=null}){
-  S.pump = !!pump;
-  S.mode = mode;
-  if(startNow) S.waterStartedAt = Date.now();
-  if(durationMs!==null) S.waterDuration = durationMs;
-}
-
-async function connectBle(){
-  const em=document.getElementById('err-msg');
-  em.textContent='Scanning...';
-  try{
-    dev=await navigator.bluetooth.requestDevice({
-      filters:[{name:'WhiteFox Irrigation'}],
-      optionalServices:[SVC]
-    });
-    dev.addEventListener('gattserverdisconnected',onDC);
-    srv=await dev.gatt.connect();
-    const svc=await srv.getPrimaryService(SVC);
-    txC=await svc.getCharacteristic(TXU);
-    rxC=await svc.getCharacteristic(RXU);
-    await txC.startNotifications();
-    txC.addEventListener('characteristicvaluechanged',onNotify);
-    setConn(true);
-    document.getElementById('overlay').classList.add('hide');
-    em.textContent='';
-    log('BLE connected.',true);
-    setTimeout(()=>{sendCmd('config');sendCmd('time');},800);
-  }catch(e){
-    em.textContent=e.message||'Connection failed';
-    log('Error: '+(e.message||e),false,true);
-  }
-}
-
-async function toggleBle(){
-  if(S.conn){ if(dev&&dev.gatt.connected)dev.gatt.disconnect(); }
-  else connectBle();
-}
-
-function onDC(){
-  setConn(false);
-  log('Disconnected',false,true);
-  document.getElementById('overlay').classList.remove('hide');
-  document.querySelectorAll('.scr').forEach(s=>s.classList.add('banner-pad'));
-  setPumpState({pump:false, mode:'UNKNOWN', durationMs:0});
-  S.flow=0;
-  dash();
-}
-
-function setConn(v){
-  S.conn=v;
-  document.getElementById('bdot').className='ble-dot'+(v?' on':'');
-  document.getElementById('blbl').textContent=v?'BLE LINK':'CONNECT';
-  if(v){
-    document.getElementById('overlay').classList.add('hide');
-    document.querySelectorAll('.scr').forEach(s=>s.classList.remove('banner-pad'));
-  }
-}
-
-async function sendCmd(cmd){
-  if(!rxC){log('Not connected',false,true);return;}
-  try{
-    await rxC.writeValue(new TextEncoder().encode(cmd+'\n'));
-    log('→ '+cmd);
-  }catch(e){log('Send err: '+e.message,false,true);}
-}
-
-let buf='';
-function onNotify(e){
-  buf+=new TextDecoder().decode(e.target.value);
-  const lines=buf.split('\n');
-  buf=lines.pop();
-  lines.forEach(parseLine);
-}
-
-function parseLine(raw){
-  const line=raw.trim();
-  if(!line) return;
-  let m;
-
-  m=line.match(/^Soil:\s*(\d+)%/);
-  if(m){
-    S.soilPct=+m[1];
-    hist.soil.push({t:Date.now(),v:+m[1]});
-    if(hist.soil.length>SOIL_SPARK_MAX) hist.soil.shift();
-    dash();
-    return;
-  }
-
-  m=line.match(/^Flow:\s*([\d.]+)/);
-  if(m){
-    S.flow=+m[1];
-    S.lastFlowMsg=Date.now();
-    hist.flow.push({t:Date.now(),v:+m[1]});
-    if(hist.flow.length>FLOW_SPARK_MAX) hist.flow.shift();
-    dash();
-    return;
-  }
-
-  if(line==='Watering'){
-    if(!S.pump){
-      setPumpState({pump:true, mode:'RUNNING'});
-      if(!hist.pumpStart) hist.pumpStart=Date.now();
-      const dur=S.working.WATERING_DURATION;
-      S.waterDuration=(dur&&dur>0)?dur:60000;
-    }
-    if(S.waterStartedAt===0) S.waterStartedAt=Date.now();
-    if(S.soilPct!==null&&S.soilPct<(S.working.EMERGENCY_THRESHOLD_PERCENT||20)) S.mode='EMERGENCY';
-    S.lastWateringMsg=Date.now();
-    dash();
-    return;
-  }
-
-  m=line.match(/ESP-NOW rx raw:\s*(\d+)/);
-  if(m){
-    S.soilAdc=+m[1];
-    dash();
-    return;
-  }
-
-  m=line.match(/(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})/);
-  if(m){
-    S.rtc=m[1];
-    S.rtcReceivedAt=Date.now();
-    document.getElementById('rtcdisp').textContent=m[1];
-    const rtcMs=new Date(m[1].replace(' ','T')).getTime();
-    const driftMin=Math.abs(Date.now()-rtcMs)/60000;
-    const warn=document.getElementById('rtc-drift-warn');
-    if(warn) warn.style.display=driftMin>10?'inline':'none';
-    if(driftMin>10) log('RTC drift: '+Math.round(driftMin)+'min from phone time',false,true);
-    else log('RTC: '+m[1],true);
-    return;
-  }
-
-  m=line.match(/^\s*(\d+)\s+([A-Z_]+)[:\s]+(.+)/);
-  if(m){
-    const sc=SCHEMA.find(s=>s.k===m[2]||s.k===m[2].replace('_PRCNT','_PERCENT'));
-    if(sc){
-      const v=parseFloat(m[3].replace('%','').trim());
-      if(!isNaN(v)){
-        S.working[sc.k]=v;
-        S.persistent[sc.k]=v;
-        renderCfg();dash();
-      }
-    }
-    return;
-  }
-
-  if(line.includes('Watering stopped')){
-    if(hist.pumpStart){
-      const dur=(Date.now()-hist.pumpStart)/1000;
-      hist.events.push({t:hist.pumpStart,type:'auto',dur,vol:S.flow*(dur/60)});
-      hist.bands.push({s:hist.pumpStart,e:Date.now()});
-      hist.pumpStart=null;
-    }
-    setPumpState({pump:false, mode:'IDLE', durationMs:0});
-    S.waterStartedAt=0;
-    S.cool=true;
-    S.coolSec=Math.floor((S.working.WATERING_COOLDOWN||1800000)/1000);
-    dash();
-    return;
-  }
-
-  if(line.includes('EMERGENCY') && line.includes('watering outside window')){
-    setPumpState({pump:true, mode:'EMERGENCY'});
-    if(!hist.pumpStart) hist.pumpStart=Date.now();
-    dash();
-    return;
-  }
-
-  m=line.match(/(\d+)s remaining/);
-  if(m){
-    S.cool=true;
-    S.coolSec=+m[1];
-    dash();
-    return;
-  }
-
-  const hl=line.includes('connect')||line.includes('saved')||line.includes('updated')||line.includes('=');
-  const er=line.includes('ERROR')||line.includes('ERR:');
-  log(line,hl,er);
-}
-
-function dash(){
-  const soil=S.soilPct;
-  const thr=S.working.MOISTURE_THRESHOLD_PERCENT||50;
-  const emg=S.working.EMERGENCY_THRESHOLD_PERCENT||20;
-  const ws=S.working.WATER_WINDOW_START||7;
-  const we=S.working.WATER_WINDOW_END||11;
-
-  if(soil!==null){
-    document.getElementById('sval').textContent=soil;
-    document.getElementById('sbar').style.width=Math.min(soil,100)+'%';
-    const ss=document.getElementById('sstat');
-    if(soil<emg) ss.innerHTML=dot('er')+' EMERGENCY';
-    else if(soil<thr) ss.innerHTML=dot('wa')+' DRY';
-    else ss.innerHTML=dot('ok')+' OK';
-  }
-  document.getElementById('sadc').textContent='ADC RAW '+(S.soilAdc!==null?S.soilAdc:'--');
-  document.getElementById('mke').style.left=emg+'%';
-  document.getElementById('mkt').style.left=thr+'%';
-
-  document.getElementById('fval').textContent=S.flow.toFixed(2);
-  document.getElementById('fbar').style.width=Math.min(S.flow*15,100)+'%';
-  const fl=S.flow>0.1;
-  document.getElementById('fstat').innerHTML=dot(fl?'ru':'id')+(fl?' FLOWING':' IDLE');
-
-  const pd=document.getElementById('pdot');
-  if(!S.conn){
-    pd.className='pd';
-    document.getElementById('plbl').textContent='UNKNOWN';
-    document.getElementById('pstxt').textContent='UNKNOWN';
-    document.getElementById('pshdr').querySelector('.sd').className='sd s-id';
-  }else{
-    pd.className='pd'+(S.mode==='EMERGENCY'?' emg':S.pump?' run':'');
-    document.getElementById('plbl').textContent=S.mode;
-    document.getElementById('pstxt').textContent=S.pump?'ON':'OFF';
-    document.getElementById('pshdr').querySelector('.sd').className='sd '+(S.mode==='EMERGENCY'?'s-er':S.pump?'s-ru':'s-id');
-  }
-
-  const now=new Date();
-  document.getElementById('prtc').textContent=now.toTimeString().slice(0,8);
-  const h=now.getHours();
-  const inWindow=(h>=ws&&h<we);
-  document.getElementById('pwin').textContent=pad(ws)+':00 - '+pad(we)+':00'+(inWindow?' (open)':' (closed)');
-  document.getElementById('pcool').textContent=S.cool?(S.coolSec>0?fmtCountdown(S.coolSec)+' remaining':'active'):'clear';
-
-  let nx='waiting for sensor';
-  if(!S.conn) nx='status unknown (not connected)';
-  else if(S.pump){
-    const dur=(S.waterDuration&&S.waterDuration>0)?S.waterDuration:60000;
-    const elapsedSec=S.waterStartedAt>0?Math.floor((Date.now()-S.waterStartedAt)/1000):0;
-    const remSec=Math.max(0,Math.floor(dur/1000)-elapsedSec);
-    nx=(S.mode==='EMERGENCY'?'EMERGENCY ':'')+'watering — '+fmtCountdown(remSec)+' remaining';
-  }else if(S.cool){
-    if(soil!==null&&soil<emg) nx='EMERGENCY dry ('+soil+'%) — see cooldown above';
-    else if(soil!==null&&soil<thr) nx='soil dry — waiting for cooldown';
-    else nx='post-watering cooldown active';
-  }else if(soil!==null&&soil<emg) nx='EMERGENCY — '+soil+'% below '+emg+'%';
-  else if(!inWindow&&soil!==null&&soil<thr) nx='soil dry — window opens at '+pad(ws)+':00';
-  else if(!inWindow) nx='window opens at '+pad(ws)+':00';
-  else if(soil!==null&&soil<thr) nx='soil dry — watering pending';
-  else if(soil!==null) nx='soil OK — monitoring';
-
-  document.getElementById('pnext').textContent=nx;
-  drawSparks();
-}
+window.onerror=function(msg,src,line){const em=document.getElementById('err-msg');if(em)em.textContent=msg+' (line '+line+')';return false;};
+const S={conn:false,soilPct:null,soilAdc:null,flow:0,pump:false,mode:'IDLE',cool:false,coolSec:0,rtc:'',waterStartedAt:0,waterDuration:0,rtcReceivedAt:0,factory:{},persistent:{},working:{},dirty:{},advOpen:false,lastWateringMsg:0,lastFlowMsg:0};
+const hist={soil:[],flow:[],events:[],bands:[],pumpStart:null};
+let dev=null,srv=null,txC=null,rxC=null,editN=null;
+const FLOW_STALE_MS=3000,WATERING_STALE_MS=4000,SOIL_SPARK_MAX=2880,FLOW_SPARK_MAX=86400;
+const SCHEMA=[{n:1,k:'WATERING_DURATION',d:'Auto cycle on-time',f:fmin,ms:true,adv:false},{n:2,k:'WATERING_COOLDOWN',d:'Wait after watering',f:fmin,ms:true,adv:false},{n:3,k:'MANUAL_WATERING_DURATION',d:'BLE manual on-time',f:fmin,ms:true,adv:false},{n:4,k:'MOISTURE_THRESHOLD_PERCENT',d:'Normal trigger %. Below=water',f:v=>v+'%',adv:false},{n:5,k:'WATER_WINDOW_START',d:'Allowed hours start (0-23)',f:v=>pad(v)+':00',adv:false},{n:6,k:'WATER_WINDOW_END',d:'Allowed hours end (0-23)',f:v=>pad(v)+':00',adv:false},{n:7,k:'EMERGENCY_THRESHOLD_PERCENT',d:'Water anytime below this %',f:v=>v+'%',adv:false},{n:8,k:'WET_ADC',d:'Sensor ADC saturated (calibrate)',f:String,adv:true},{n:9,k:'DRY_ADC',d:'Sensor ADC dry air (calibrate)',f:String,adv:true},{n:10,k:'SOIL_SMOOTHING_FACTOR',d:'Soil smoothing 1-100 (100=raw)',f:String,adv:true},{n:11,k:'FLOW_SMOOTHING_FACTOR',d:'Flow smoothing 1-100 (100=raw)',f:String,adv:true},{n:12,k:'FLOW_PULSE',d:'GR-201 pulses per L/min',f:String,adv:true},{n:13,k:'FLOW_WINDOW',d:'Pulse counting window ms',f:String,adv:true},{n:14,k:'PHONE_NOTIFICATION_DELAY',d:'BLE report rate ms',f:String,adv:true}];
+const FACTORY={WATERING_DURATION:60000,WATERING_COOLDOWN:1800000,MANUAL_WATERING_DURATION:60000,MOISTURE_THRESHOLD_PERCENT:50,WATER_WINDOW_START:7,WATER_WINDOW_END:11,EMERGENCY_THRESHOLD_PERCENT:20,WET_ADC:1400,DRY_ADC:2900,SOIL_SMOOTHING_FACTOR:100,FLOW_SMOOTHING_FACTOR:20,FLOW_PULSE:4.5,FLOW_WINDOW:1000,PHONE_NOTIFICATION_DELAY:1000};
+Object.assign(S.factory,FACTORY);Object.assign(S.persistent,FACTORY);Object.assign(S.working,FACTORY);
+function fmin(v){v=Number(v);const min=v/60000;if(min>=60)return(min/60).toFixed(2)+'h ('+min.toFixed(0)+'min)';if(min===Math.floor(min))return min+'min';return min.toFixed(1)+'min';}
+function msToMin(ms){return+(ms/60000).toFixed(4);}function minToMs(min){return Math.round(parseFloat(min)*60000);}
+function fmtCountdown(sec){sec=Math.max(0,Math.round(sec));if(sec>=3600)return Math.floor(sec/3600)+'h '+Math.floor((sec%3600)/60)+'m';if(sec>=60)return Math.floor(sec/60)+'m '+String(sec%60).padStart(2,'0')+'s';return sec+'s';}
+function pad(v){return String(v).padStart(2,'0');}
+const SVC='00000001-0000-feed-0000-000000000000',RXU='00000002-0000-feed-0000-000000000000',TXU='00000003-0000-feed-0000-000000000000';
+function setPumpState({pump,mode,startNow=false,durationMs=null}){S.pump=!!pump;S.mode=mode;if(startNow)S.waterStartedAt=Date.now();if(durationMs!==null)S.waterDuration=durationMs;}
+async function connectBle(){const em=document.getElementById('err-msg');em.textContent='Scanning...';try{dev=await navigator.bluetooth.requestDevice({filters:[{name:'WhiteFox Irrigation'}],optionalServices:[SVC]});dev.addEventListener('gattserverdisconnected',onDC);srv=await dev.gatt.connect();const svc=await srv.getPrimaryService(SVC);txC=await svc.getCharacteristic(TXU);rxC=await svc.getCharacteristic(RXU);await txC.startNotifications();txC.addEventListener('characteristicvaluechanged',onNotify);setConn(true);document.getElementById('overlay').classList.add('hide');em.textContent='';log('BLE connected.',true);setTimeout(()=>{sendCmd('config');sendCmd('time');},800);}catch(e){em.textContent=e.message||'Connection failed';log('Error: '+(e.message||e),false,true);}}
+async function toggleBle(){if(S.conn){if(dev&&dev.gatt.connected)dev.gatt.disconnect();}else connectBle();}
+function onDC(){setConn(false);log('Disconnected',false,true);cmdQueue.length=0;cmdInFlight=false;document.getElementById('overlay').classList.remove('hide');document.querySelectorAll('.scr').forEach(s=>s.classList.add('banner-pad'));setPumpState({pump:false,mode:'UNKNOWN',durationMs:0});S.flow=0;dash();}
+function setConn(v){S.conn=v;document.getElementById('bdot').className='ble-dot'+(v?' on':'');document.getElementById('blbl').textContent=v?'BLE LINK':'CONNECT';if(v){document.getElementById('overlay').classList.add('hide');document.querySelectorAll('.scr').forEach(s=>s.classList.remove('banner-pad'));}}
+const cmdQueue=[];let cmdInFlight=false;
+async function processCmdQueue(){if(cmdInFlight||!cmdQueue.length||!rxC)return;cmdInFlight=true;const cmd=cmdQueue.shift();try{await rxC.writeValue(new TextEncoder().encode(cmd+'\n'));log('→ '+cmd);}catch(e){log('Send err: '+e.message,false,true);}finally{cmdInFlight=false;if(cmdQueue.length)setTimeout(processCmdQueue,25);}}
+async function sendCmd(cmd){if(!rxC){log('Not connected',false,true);return;}if(cmdQueue.length&&cmdQueue[cmdQueue.length-1]===cmd)return;cmdQueue.push(cmd);processCmdQueue();}
+let buf='';function onNotify(e){buf+=new TextDecoder().decode(e.target.value);const lines=buf.split('\n');buf=lines.pop();lines.forEach(parseLine);}
+function parseLine(raw){const line=raw.trim();if(!line)return;let m;m=line.match(/^Soil:\s*(\d+)%/);if(m){S.soilPct=+m[1];hist.soil.push({t:Date.now(),v:+m[1]});if(hist.soil.length>SOIL_SPARK_MAX)hist.soil.shift();dash();return;}m=line.match(/^Flow:\s*([\d.]+)/);if(m){S.flow=+m[1];S.lastFlowMsg=Date.now();hist.flow.push({t:Date.now(),v:+m[1]});if(hist.flow.length>FLOW_SPARK_MAX)hist.flow.shift();dash();return;}if(line==='Watering'){if(!S.pump){setPumpState({pump:true,mode:'RUNNING'});if(!hist.pumpStart)hist.pumpStart=Date.now();const dur=S.working.WATERING_DURATION;S.waterDuration=(dur&&dur>0)?dur:60000;}if(S.waterStartedAt===0)S.waterStartedAt=Date.now();if(S.soilPct!==null&&S.soilPct<(S.working.EMERGENCY_THRESHOLD_PERCENT||20))S.mode='EMERGENCY';S.lastWateringMsg=Date.now();dash();return;}m=line.match(/ESP-NOW rx raw:\s*(\d+)/);if(m){S.soilAdc=+m[1];dash();return;}m=line.match(/(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})/);if(m){S.rtc=m[1];S.rtcReceivedAt=Date.now();document.getElementById('rtcdisp').textContent=m[1];const rtcMs=new Date(m[1].replace(' ','T')).getTime();const driftMin=Math.abs(Date.now()-rtcMs)/60000;const warn=document.getElementById('rtc-drift-warn');if(warn)warn.style.display=driftMin>10?'inline':'none';if(driftMin>10)log('RTC drift: '+Math.round(driftMin)+'min from phone time',false,true);else log('RTC: '+m[1],true);return;}m=line.match(/^\s*(\d+)\s+([A-Z_]+)[:\s]+(.+)/);if(m){const sc=SCHEMA.find(s=>s.k===m[2]||s.k===m[2].replace('_PRCNT','_PERCENT'));if(sc){const v=parseFloat(m[3].replace('%','').trim());if(!isNaN(v)){S.working[sc.k]=v;S.persistent[sc.k]=v;renderCfg();dash();}}return;}if(line.includes('Watering stopped')){if(hist.pumpStart){const dur=(Date.now()-hist.pumpStart)/1000;hist.events.push({t:hist.pumpStart,type:'auto',dur,vol:S.flow*(dur/60)});hist.bands.push({s:hist.pumpStart,e:Date.now()});hist.pumpStart=null;}setPumpState({pump:false,mode:'IDLE',durationMs:0});S.waterStartedAt=0;S.cool=true;S.coolSec=Math.floor((S.working.WATERING_COOLDOWN||1800000)/1000);dash();return;}if(line.includes('EMERGENCY')&&line.includes('watering outside window')){setPumpState({pump:true,mode:'EMERGENCY'});if(!hist.pumpStart)hist.pumpStart=Date.now();dash();return;}m=line.match(/(\d+)s remaining/);if(m){S.cool=true;S.coolSec=+m[1];dash();return;}const hl=line.includes('connect')||line.includes('saved')||line.includes('updated')||line.includes('=');const er=line.includes('ERROR')||line.includes('ERR:');log(line,hl,er);}
+function dash(){const soil=S.soilPct,thr=S.working.MOISTURE_THRESHOLD_PERCENT||50,emg=S.working.EMERGENCY_THRESHOLD_PERCENT||20,ws=S.working.WATER_WINDOW_START||7,we=S.working.WATER_WINDOW_END||11;if(soil!==null){document.getElementById('sval').textContent=soil;document.getElementById('sbar').style.width=Math.min(soil,100)+'%';const ss=document.getElementById('sstat');if(soil<emg)ss.innerHTML=dot('er')+' EMERGENCY';else if(soil<thr)ss.innerHTML=dot('wa')+' DRY';else ss.innerHTML=dot('ok')+' OK';}document.getElementById('sadc').textContent='ADC RAW '+(S.soilAdc!==null?S.soilAdc:'--');document.getElementById('mke').style.left=emg+'%';document.getElementById('mkt').style.left=thr+'%';document.getElementById('fval').textContent=S.flow.toFixed(2);document.getElementById('fbar').style.width=Math.min(S.flow*15,100)+'%';const fl=S.flow>0.1;document.getElementById('fstat').innerHTML=dot(fl?'ru':'id')+(fl?' FLOWING':' IDLE');const pd=document.getElementById('pdot');if(!S.conn){pd.className='pd';document.getElementById('plbl').textContent='UNKNOWN';document.getElementById('pstxt').textContent='UNKNOWN';document.getElementById('pshdr').querySelector('.sd').className='sd s-id';}else{pd.className='pd'+(S.mode==='EMERGENCY'?' emg':S.pump?' run':'');document.getElementById('plbl').textContent=S.mode;document.getElementById('pstxt').textContent=S.pump?'ON':'OFF';document.getElementById('pshdr').querySelector('.sd').className='sd '+(S.mode==='EMERGENCY'?'s-er':S.pump?'s-ru':'s-id');}const now=new Date();document.getElementById('prtc').textContent=now.toTimeString().slice(0,8);const h=now.getHours(),inWindow=(h>=ws&&h<we);document.getElementById('pwin').textContent=pad(ws)+':00 - '+pad(we)+':00'+(inWindow?' (open)':' (closed)');document.getElementById('pcool').textContent=S.cool?(S.coolSec>0?fmtCountdown(S.coolSec)+' remaining':'active'):'clear';let nx='waiting for sensor';if(!S.conn)nx='status unknown (not connected)';else if(S.pump){const dur=(S.waterDuration&&S.waterDuration>0)?S.waterDuration:60000,elapsedSec=S.waterStartedAt>0?Math.floor((Date.now()-S.waterStartedAt)/1000):0,remSec=Math.max(0,Math.floor(dur/1000)-elapsedSec);nx=(S.mode==='EMERGENCY'?'EMERGENCY ':'')+'watering — '+fmtCountdown(remSec)+' remaining';}else if(S.cool){if(soil!==null&&soil<emg)nx='EMERGENCY dry ('+soil+'%) — see cooldown above';else if(soil!==null&&soil<thr)nx='soil dry — waiting for cooldown';else nx='post-watering cooldown active';}else if(soil!==null&&soil<emg)nx='EMERGENCY — '+soil+'% below '+emg+'%';else if(!inWindow&&soil!==null&&soil<thr)nx='soil dry — window opens at '+pad(ws)+':00';else if(!inWindow)nx='window opens at '+pad(ws)+':00';else if(soil!==null&&soil<thr)nx='soil dry — watering pending';else if(soil!==null)nx='soil OK — monitoring';document.getElementById('pnext').textContent=nx;drawSparks();}
 function dot(c){return `<div class="sd s-${c}"></div>`;}
-
-function drawSparks(){
-  sparkline('sspk',hist.soil,'#00d4a0',0,100);
-  sparkline('fspk',hist.flow,'#4488dd',0,8);
-}
-function sparkline(id,data,col,lo,hi){
-  const c=document.getElementById(id); if(!c) return;
-  const dpr=window.devicePixelRatio||1, w=c.offsetWidth, h=c.offsetHeight;
-  if(!w||!h) return;
-  c.width=w*dpr; c.height=h*dpr;
-  const ctx=c.getContext('2d');
-  ctx.scale(dpr,dpr);
-  const pts=data.slice(-80);
-  if(pts.length<2) return;
-  ctx.clearRect(0,0,w,h);
-  ctx.beginPath();
-  pts.forEach((p,i)=>{
-    const x=(i/(pts.length-1))*w, y=h-((p.v-lo)/(hi-lo))*h;
-    i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
-  });
-  ctx.strokeStyle=col;ctx.lineWidth=1.5;ctx.stroke();
-  const g=ctx.createLinearGradient(0,0,0,h);
-  g.addColorStop(0,col+'44'); g.addColorStop(1,col+'00');
-  ctx.lineTo(w,h);ctx.lineTo(0,h);ctx.closePath();
-  ctx.fillStyle=g;ctx.fill();
-}
-
-function drawHist(){
-  const ev=hist.events;
-  document.getElementById('hev').textContent=ev.length;
-  const avg=hist.soil.length?Math.round(hist.soil.reduce((a,b)=>a+b.v,0)/hist.soil.length):'--';
-  document.getElementById('havg').textContent=avg;
-  document.getElementById('hvol').textContent=ev.reduce((a,e)=>a+e.vol,0).toFixed(1);
-
-  const el=document.getElementById('evl');
-  if(!ev.length) el.innerHTML='<div class="evm">no events in range</div>';
-  else{
-    el.innerHTML=ev.slice(-8).reverse().map(e=>{
-      const d=new Date(e.t);
-      return `<div class="evr"><span style="color:var(--green)">${d.toTimeString().slice(0,5)}</span><span>${e.type}</span><span style="color:var(--dim)">${Math.round(e.dur)}s · ${e.vol.toFixed(1)}L</span></div>`;
-    }).join('');
-  }
-
-  const c=document.getElementById('hcnv'); if(!c) return;
-  const dpr=window.devicePixelRatio||1;
-  const w=c.offsetWidth||c.parentElement.clientWidth-12;
-  const h=c.offsetHeight||158;
-  c.width=w*dpr;c.height=h*dpr;
-  const ctx=c.getContext('2d');
-  ctx.scale(dpr,dpr);
-  ctx.clearRect(0,0,w,h);
-
-  const now=Date.now(), span=24*3600000, tMin=now-span;
-  const tx=t=>((t-tMin)/span)*w;
-  const ty=(v,lo,hi)=>h-((v-lo)/(hi-lo))*(h-16)-8;
-
-  ctx.strokeStyle='#1a1a1a';ctx.lineWidth=1;
-  [0,25,50,75,100].forEach(v=>{
-    const y=ty(v,0,100);
-    ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();
-    ctx.fillStyle='#333';ctx.font='9px Courier New';ctx.fillText(v,2,y-2);
-  });
-
-  const thr=S.working.MOISTURE_THRESHOLD_PERCENT||50;
-  const emg=S.working.EMERGENCY_THRESHOLD_PERCENT||20;
-  ctx.setLineDash([4,4]);
-  ctx.strokeStyle='rgba(240,160,48,.5)';
-  ctx.beginPath();ctx.moveTo(0,ty(thr,0,100));ctx.lineTo(w,ty(thr,0,100));ctx.stroke();
-  ctx.strokeStyle='rgba(224,80,80,.5)';
-  ctx.beginPath();ctx.moveTo(0,ty(emg,0,100));ctx.lineTo(w,ty(emg,0,100));ctx.stroke();
-  ctx.setLineDash([]);
-
-  hist.bands.filter(b=>b.e>tMin).forEach(b=>{
-    ctx.fillStyle='rgba(68,136,221,.12)';
-    ctx.fillRect(Math.max(0,tx(b.s)),0,Math.min(w,tx(b.e))-Math.max(0,tx(b.s)),h);
-  });
-
-  const sp=hist.soil.filter(p=>p.t>tMin);
-  if(sp.length>1){
-    ctx.beginPath();
-    sp.forEach((p,i)=>{const x=tx(p.t),y=ty(p.v,0,100);i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);});
-    ctx.strokeStyle='#00d4a0';ctx.lineWidth=1.5;ctx.stroke();
-  }
-
-  const fp=hist.flow.filter(p=>p.t>tMin&&p.v>0);
-  if(fp.length>1){
-    ctx.beginPath();
-    fp.forEach((p,i)=>{const x=tx(p.t),y=ty(p.v,0,8);i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);});
-    ctx.strokeStyle='#4488dd';ctx.lineWidth=1;ctx.stroke();
-  }
-
-  ctx.fillStyle='#333';ctx.font='9px Courier New';
-  for(let hb=24;hb>=0;hb-=4){
-    const x=tx(now-hb*3600000);
-    if(x>10&&x<w-10)ctx.fillText('-'+hb+'h',x+2,h-2);
-  }
-}
-
-function renderCfg(){
-  renderList('cml',SCHEMA.filter(s=>!s.adv));
-  renderList('cal',SCHEMA.filter(s=>s.adv));
-  const hd=Object.keys(S.dirty).length>0;
-  const sb=document.getElementById('savebar');
-  sb.textContent=hd?'▲ SAVE CONFIG — unsaved changes':'· NO CHANGES TO SAVE';
-  sb.className='savebar'+(hd?' has':'');
-}
-
-function renderList(id,sch){
-  document.getElementById(id).innerHTML=sch.map(s=>{
-    const working=S.working[s.k]!==undefined?S.working[s.k]:S.factory[s.k];
-    const persistent=S.persistent[s.k]!==undefined?S.persistent[s.k]:S.factory[s.k];
-    const isDirty=S.dirty[s.k]!==undefined;
-    const isUnsaved=(working!==persistent);
-    const dv=s.f(working), pv=s.f(persistent);
-    const cls='cfgr'+((isDirty||isUnsaved)?' dirty':'');
-    const valCls='cv'+((isDirty||isUnsaved)?' dirty':'');
-    const sub=isUnsaved&&!isDirty?`<div style="font-size:8px;color:var(--dim)">saved: ${pv}</div>`:'';
-    const prettyName=s.k.replace(/_/g,' ');
-    return `<div class="${cls}" onclick="openEdit(${s.n})">
-      <div class="cn">${String(s.n).padStart(2,'0')}</div>
-      <div class="ci"><div class="cnm">${prettyName}</div><div class="cd">${s.d}</div>${sub}</div>
-      <div class="${valCls}">${dv}</div>
-    </div>`;
-  }).join('');
-}
-
-function togAdv(){
-  S.advOpen=!S.advOpen;
-  document.getElementById('advsec').className='advsec'+(S.advOpen?' open':'');
-  document.getElementById('advt').textContent=(S.advOpen?'− ':'+ ')+'advanced (7)';
-}
-
-function openEdit(n){
-  const s=SCHEMA.find(x=>x.n===n); if(!s) return;
-  editN=n;
-  const cur=S.working[s.k]!==undefined?S.working[s.k]:S.factory[s.k];
-  const saved=S.persistent[s.k]!==undefined?S.persistent[s.k]:S.factory[s.k];
-  const fac=S.factory[s.k];
-  const isMsVar=s.ms===true;
-  document.getElementById('mtitle').textContent=s.k.replace(/_/g,' ');
-  document.getElementById('mdesc').textContent=s.d+'\nSaved: '+s.f(saved)+'  Factory: '+s.f(fac);
-  document.getElementById('munit').textContent=isMsVar?'Enter value in MINUTES':'Enter value';
-  document.getElementById('minput').value=isMsVar?msToMin(cur):cur;
-  document.getElementById('modal').classList.remove('hide');
-  setTimeout(()=>document.getElementById('minput').focus(),150);
-}
+function drawSparks(){sparkline('sspk',hist.soil,'#00d4a0',0,100);sparkline('fspk',hist.flow,'#4488dd',0,8);}
+function sparkline(id,data,col,lo,hi){const c=document.getElementById(id);if(!c)return;const dpr=window.devicePixelRatio||1,w=c.offsetWidth,h=c.offsetHeight;if(!w||!h)return;c.width=w*dpr;c.height=h*dpr;const ctx=c.getContext('2d');ctx.scale(dpr,dpr);const pts=data.slice(-80);if(pts.length<2)return;ctx.clearRect(0,0,w,h);ctx.beginPath();pts.forEach((p,i)=>{const x=(i/(pts.length-1))*w,y=h-((p.v-lo)/(hi-lo))*h;i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);});ctx.strokeStyle=col;ctx.lineWidth=1.5;ctx.stroke();const g=ctx.createLinearGradient(0,0,0,h);g.addColorStop(0,col+'44');g.addColorStop(1,col+'00');ctx.lineTo(w,h);ctx.lineTo(0,h);ctx.closePath();ctx.fillStyle=g;ctx.fill();}
+function drawHist(){const ev=hist.events;document.getElementById('hev').textContent=ev.length;const avg=hist.soil.length?Math.round(hist.soil.reduce((a,b)=>a+b.v,0)/hist.soil.length):'--';document.getElementById('havg').textContent=avg;document.getElementById('hvol').textContent=ev.reduce((a,e)=>a+e.vol,0).toFixed(1);const el=document.getElementById('evl');if(!ev.length)el.innerHTML='<div class="evm">no events in range</div>';else{el.innerHTML=ev.slice(-8).reverse().map(e=>{const d=new Date(e.t);return `<div class="evr"><span style="color:var(--green)">${d.toTimeString().slice(0,5)}</span><span>${e.type}</span><span style="color:var(--dim)">${Math.round(e.dur)}s · ${e.vol.toFixed(1)}L</span></div>`;}).join('');}const c=document.getElementById('hcnv');if(!c)return;const dpr=window.devicePixelRatio||1,w=c.offsetWidth||c.parentElement.clientWidth-12,h=c.offsetHeight||158;c.width=w*dpr;c.height=h*dpr;const ctx=c.getContext('2d');ctx.scale(dpr,dpr);ctx.clearRect(0,0,w,h);const now=Date.now(),span=24*3600000,tMin=now-span,tx=t=>((t-tMin)/span)*w,ty=(v,lo,hi)=>h-((v-lo)/(hi-lo))*(h-16)-8;ctx.strokeStyle='#1a1a1a';ctx.lineWidth=1;[0,25,50,75,100].forEach(v=>{const y=ty(v,0,100);ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();ctx.fillStyle='#333';ctx.font='9px Courier New';ctx.fillText(v,2,y-2);});const thr=S.working.MOISTURE_THRESHOLD_PERCENT||50,emg=S.working.EMERGENCY_THRESHOLD_PERCENT||20;ctx.setLineDash([4,4]);ctx.strokeStyle='rgba(240,160,48,.5)';ctx.beginPath();ctx.moveTo(0,ty(thr,0,100));ctx.lineTo(w,ty(thr,0,100));ctx.stroke();ctx.strokeStyle='rgba(224,80,80,.5)';ctx.beginPath();ctx.moveTo(0,ty(emg,0,100));ctx.lineTo(w,ty(emg,0,100));ctx.stroke();ctx.setLineDash([]);hist.bands.filter(b=>b.e>tMin).forEach(b=>{ctx.fillStyle='rgba(68,136,221,.12)';ctx.fillRect(Math.max(0,tx(b.s)),0,Math.min(w,tx(b.e))-Math.max(0,tx(b.s)),h);});const sp=hist.soil.filter(p=>p.t>tMin);if(sp.length>1){ctx.beginPath();sp.forEach((p,i)=>{const x=tx(p.t),y=ty(p.v,0,100);i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);});ctx.strokeStyle='#00d4a0';ctx.lineWidth=1.5;ctx.stroke();}const fp=hist.flow.filter(p=>p.t>tMin&&p.v>0);if(fp.length>1){ctx.beginPath();fp.forEach((p,i)=>{const x=tx(p.t),y=ty(p.v,0,8);i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);});ctx.strokeStyle='#4488dd';ctx.lineWidth=1;ctx.stroke();}ctx.fillStyle='#333';ctx.font='9px Courier New';for(let hb=24;hb>=0;hb-=4){const x=tx(now-hb*3600000);if(x>10&&x<w-10)ctx.fillText('-'+hb+'h',x+2,h-2);}}
+function renderCfg(){renderList('cml',SCHEMA.filter(s=>!s.adv));renderList('cal',SCHEMA.filter(s=>s.adv));const hd=Object.keys(S.dirty).length>0,sb=document.getElementById('savebar');sb.textContent=hd?'▲ SAVE CONFIG — unsaved changes':'· NO CHANGES TO SAVE';sb.className='savebar'+(hd?' has':'');}
+function renderList(id,sch){document.getElementById(id).innerHTML=sch.map(s=>{const working=S.working[s.k]!==undefined?S.working[s.k]:S.factory[s.k],persistent=S.persistent[s.k]!==undefined?S.persistent[s.k]:S.factory[s.k],isDirty=S.dirty[s.k]!==undefined,isUnsaved=(working!==persistent),dv=s.f(working),pv=s.f(persistent),cls='cfgr'+((isDirty||isUnsaved)?' dirty':''),valCls='cv'+((isDirty||isUnsaved)?' dirty':''),sub=isUnsaved&&!isDirty?`<div style="font-size:8px;color:var(--dim)">saved: ${pv}</div>`:'',prettyName=s.k.replace(/_/g,' ');return `<div class="${cls}" onclick="openEdit(${s.n})"><div class="cn">${String(s.n).padStart(2,'0')}</div><div class="ci"><div class="cnm">${prettyName}</div><div class="cd">${s.d}</div>${sub}</div><div class="${valCls}">${dv}</div></div>`;}).join('');}
+function togAdv(){S.advOpen=!S.advOpen;document.getElementById('advsec').className='advsec'+(S.advOpen?' open':'');document.getElementById('advt').textContent=(S.advOpen?'− ':'+ ')+'advanced (7)';}
+function openEdit(n){const s=SCHEMA.find(x=>x.n===n);if(!s)return;editN=n;const cur=S.working[s.k]!==undefined?S.working[s.k]:S.factory[s.k],saved=S.persistent[s.k]!==undefined?S.persistent[s.k]:S.factory[s.k],fac=S.factory[s.k],isMsVar=s.ms===true;document.getElementById('mtitle').textContent=s.k.replace(/_/g,' ');document.getElementById('mdesc').textContent=s.d+'\nSaved: '+s.f(saved)+'  Factory: '+s.f(fac);document.getElementById('munit').textContent=isMsVar?'Enter value in MINUTES':'Enter value';document.getElementById('minput').value=isMsVar?msToMin(cur):cur;document.getElementById('modal').classList.remove('hide');setTimeout(()=>document.getElementById('minput').focus(),150);}
 function mkey(e){if(e.key==='Enter')applyM();if(e.key==='Escape')closeM();}
-function applyM(){
-  const s=SCHEMA.find(x=>x.n===editN); if(!s){closeM();return;}
-  const raw=parseFloat(document.getElementById('minput').value);
-  if(isNaN(raw)){closeM();return;}
-  const v=(s.ms===true)?minToMs(raw):raw;
-  S.working[s.k]=v; S.dirty[s.k]=v;
-  sendCmd('set '+editN+' '+v);
-  renderCfg(); closeM();
-}
+function applyM(){const s=SCHEMA.find(x=>x.n===editN);if(!s){closeM();return;}const raw=parseFloat(document.getElementById('minput').value);if(isNaN(raw)){closeM();return;}const v=(s.ms===true)?minToMs(raw):raw;S.working[s.k]=v;S.dirty[s.k]=v;sendCmd('set '+editN+' '+v);renderCfg();closeM();}
 function closeM(){document.getElementById('modal').classList.add('hide');editN=null;}
-
-function saveCfg(){
-  if(!Object.keys(S.dirty).length) return;
-  Object.assign(S.persistent,S.dirty);
-  S.dirty={};
-  sendCmd('save config');
-  renderCfg();
-  log('Config saved to persistent storage',true);
-}
-
-function doReset(){
-  if(!confirm('Reset ALL settings to factory defaults?\n\nThis loads factory values into RAM only.\nSend SAVE CONFIG afterward to make them permanent.'))return;
-  Object.assign(S.working,S.factory);
-  S.dirty={};
-  sendCmd('reset');
-  renderCfg(); dash();
-  log('Factory defaults loaded to RAM — send save config to persist',false,false);
-}
-
-function manualWaterOn(){
-  S.waterDuration=S.working.MANUAL_WATERING_DURATION||60000;
-  setPumpState({pump:true, mode:'RUNNING', startNow:true, durationMs:S.waterDuration});
-  sendCmd('water on');
-}
-function manualWaterOff(){
-  setPumpState({pump:false, mode:'IDLE', durationMs:0});
-  S.waterStartedAt=0;
-  S.cool=true;
-  S.coolSec=Math.floor((S.working.WATERING_COOLDOWN||1800000)/1000);
-  sendCmd('water off');
-  dash();
-}
-
-function syncRtcNow(){
-  const now=new Date();
-  sendCmd('set time '+now.getFullYear()+' '+(now.getMonth()+1)+' '+now.getDate()+' '+now.getHours()+' '+now.getMinutes()+' '+now.getSeconds());
-  log('RTC synced to phone time',true);
-}
-function rtcKey(e){
-  if(e.key!=='Enter') return;
-  const v=e.target.value.trim();
-  const m=v.match(/^(\d{4})\s+(\d{1,2})\s+(\d{1,2})\s+(\d{1,2})\s+(\d{1,2})\s+(\d{1,2})$/);
-  if(m){sendCmd('set time '+m[1]+' '+m[2]+' '+m[3]+' '+m[4]+' '+m[5]+' '+m[6]);e.target.value='';}
-  else log('Format: yyyy mm dd hh mm ss',false,true);
-}
-
-function log(msg,hl,er){
-  const el=document.getElementById('blog');
-  const t=new Date().toTimeString().slice(0,8);
-  const d=document.createElement('div');
-  d.className='le'+(er?' er':hl?' hl':'');
-  d.innerHTML='<span class="lt">'+t+' </span>'+msg;
-  el.appendChild(d);
-  while(el.children.length>40)el.removeChild(el.firstChild);
-  el.scrollTop=el.scrollHeight;
-}
-
-function showScr(name,title){
-  document.querySelectorAll('.scr').forEach(s=>s.classList.remove('on'));
-  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));
-  document.getElementById('scr-'+name).classList.add('on');
-  document.getElementById('tab-'+name).classList.add('on');
-  document.getElementById('stitle').textContent=title;
-  if(name==='hist') setTimeout(drawHist,50);
-  if(name==='cfg'){
-    renderCfg();
-    if(S.conn) sendCmd('time');
-  }
-}
-
-setInterval(()=>{
-  document.getElementById('clk').textContent=new Date().toTimeString().slice(0,8);
-
-  if(S.rtc&&S.rtcReceivedAt>0){
-    const elapsedSec=Math.floor((Date.now()-S.rtcReceivedAt)/1000);
-    const base=new Date(S.rtc.replace(' ','T')).getTime();
-    const ticked=new Date(base+elapsedSec*1000);
-    const ts=ticked.getFullYear()+'-'+String(ticked.getMonth()+1).padStart(2,'0')+'-'+String(ticked.getDate()).padStart(2,'0')+' '+String(ticked.getHours()).padStart(2,'0')+':'+String(ticked.getMinutes()).padStart(2,'0')+':'+String(ticked.getSeconds()).padStart(2,'0');
-    document.getElementById('rtcdisp').textContent=ts;
-  }
-
-  if(S.cool&&S.coolSec>0){S.coolSec--;if(S.coolSec<=0)S.cool=false;}
-
-  if(S.conn && S.flow>0 && (Date.now()-S.lastFlowMsg)>FLOW_STALE_MS){
-    S.flow=0;
-    hist.flow.push({t:Date.now(),v:0});
-  }
-
-  if(S.conn && S.pump && S.lastWateringMsg>0 && (Date.now()-S.lastWateringMsg)>WATERING_STALE_MS){
-    setPumpState({pump:false, mode:'IDLE', durationMs:0});
-    S.waterStartedAt=0;
-    S.cool=true;
-    S.coolSec=Math.floor((S.working.WATERING_COOLDOWN||1800000)/1000);
-    if(hist.pumpStart){
-      const dur=(Date.now()-hist.pumpStart)/1000;
-      hist.events.push({t:hist.pumpStart,type:'auto',dur,vol:S.flow*(dur/60)});
-      hist.bands.push({s:hist.pumpStart,e:Date.now()});
-      hist.pumpStart=null;
-    }
-  }
-
-  dash();
-},1000);
-
+function saveCfg(){if(!Object.keys(S.dirty).length)return;Object.assign(S.persistent,S.dirty);S.dirty={};sendCmd('save config');renderCfg();log('Config saved to persistent storage',true);}
+function doReset(){if(!confirm('Reset ALL settings to factory defaults?\n\nThis loads factory values into RAM only.\nSend SAVE CONFIG afterward to make them permanent.'))return;Object.assign(S.working,S.factory);S.dirty={};sendCmd('reset');renderCfg();dash();log('Factory defaults loaded to RAM — send save config to persist',false,false);}
+function manualWaterOn(){S.waterDuration=S.working.MANUAL_WATERING_DURATION||60000;setPumpState({pump:true,mode:'RUNNING',startNow:true,durationMs:S.waterDuration});sendCmd('water on');}
+function manualWaterOff(){setPumpState({pump:false,mode:'IDLE',durationMs:0});S.waterStartedAt=0;S.cool=true;S.coolSec=Math.floor((S.working.WATERING_COOLDOWN||1800000)/1000);sendCmd('water off');dash();}
+function syncRtcNow(){const now=new Date();sendCmd('set time '+now.getFullYear()+' '+(now.getMonth()+1)+' '+now.getDate()+' '+now.getHours()+' '+now.getMinutes()+' '+now.getSeconds());log('RTC synced to phone time',true);}
+function rtcKey(e){if(e.key!=='Enter')return;const v=e.target.value.trim(),m=v.match(/^(\d{4})\s+(\d{1,2})\s+(\d{1,2})\s+(\d{1,2})\s+(\d{1,2})\s+(\d{1,2})$/);if(m){sendCmd('set time '+m[1]+' '+m[2]+' '+m[3]+' '+m[4]+' '+m[5]+' '+m[6]);e.target.value='';}else log('Format: yyyy mm dd hh mm ss',false,true);}
+function log(msg,hl,er){const el=document.getElementById('blog'),t=new Date().toTimeString().slice(0,8),d=document.createElement('div');d.className='le'+(er?' er':hl?' hl':'');d.innerHTML='<span class="lt">'+t+' </span>'+msg;el.appendChild(d);while(el.children.length>40)el.removeChild(el.firstChild);el.scrollTop=el.scrollHeight;}
+function showScr(name,title){document.querySelectorAll('.scr').forEach(s=>s.classList.remove('on'));document.querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));document.getElementById('scr-'+name).classList.add('on');document.getElementById('tab-'+name).classList.add('on');document.getElementById('stitle').textContent=title;if(name==='hist')setTimeout(drawHist,50);if(name==='cfg'){renderCfg();if(S.conn)sendCmd('time');}}
+setInterval(()=>{document.getElementById('clk').textContent=new Date().toTimeString().slice(0,8);if(S.rtc&&S.rtcReceivedAt>0){const elapsedSec=Math.floor((Date.now()-S.rtcReceivedAt)/1000),base=new Date(S.rtc.replace(' ','T')).getTime(),ticked=new Date(base+elapsedSec*1000),ts=ticked.getFullYear()+'-'+String(ticked.getMonth()+1).padStart(2,'0')+'-'+String(ticked.getDate()).padStart(2,'0')+' '+String(ticked.getHours()).padStart(2,'0')+':'+String(ticked.getMinutes()).padStart(2,'0')+':'+String(ticked.getSeconds()).padStart(2,'0');document.getElementById('rtcdisp').textContent=ts;}if(S.cool&&S.coolSec>0){S.coolSec--;if(S.coolSec<=0)S.cool=false;}if(S.conn&&S.flow>0&&(Date.now()-S.lastFlowMsg)>FLOW_STALE_MS){S.flow=0;hist.flow.push({t:Date.now(),v:0});}if(S.conn&&S.pump&&S.lastWateringMsg>0&&(Date.now()-S.lastWateringMsg)>WATERING_STALE_MS){setPumpState({pump:false,mode:'IDLE',durationMs:0});S.waterStartedAt=0;S.cool=true;S.coolSec=Math.floor((S.working.WATERING_COOLDOWN||1800000)/1000);if(hist.pumpStart){const dur=(Date.now()-hist.pumpStart)/1000;hist.events.push({t:hist.pumpStart,type:'auto',dur,vol:S.flow*(dur/60)});hist.bands.push({s:hist.pumpStart,e:Date.now()});hist.pumpStart=null;}}dash();},1000);
 document.querySelectorAll('.scr').forEach(s=>s.classList.add('banner-pad'));
-
-if(!navigator.bluetooth){
-  document.getElementById('overlay').innerHTML=`
-    <div class="ov-left">
-      <div class="ov-title" style="color:var(--red)">BROWSER NOT SUPPORTED</div>
-      <div class="ov-sub">Open in Chrome on Android. chrome://flags → enable Experimental Web Platform</div>
-      <div id="err-msg"></div>
-    </div>
-  `;
-}
-
-renderCfg();
-window.addEventListener('resize',()=>{drawSparks();});
+if(!navigator.bluetooth){document.getElementById('overlay').innerHTML=`<div class="ov-left"><div class="ov-title" style="color:var(--red)">BROWSER NOT SUPPORTED</div><div class="ov-sub">Open in Chrome on Android. chrome://flags → enable Experimental Web Platform</div><div id="err-msg"></div></div>`;}
+renderCfg();window.addEventListener('resize',()=>{drawSparks();});
 </script>
 </body>
 </html>
