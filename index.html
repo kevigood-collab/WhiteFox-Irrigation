@@ -146,7 +146,7 @@ canvas{display:block;width:100%;height:100%}
 <div id="app">
   <div id="hdr">
     <div class="hd-top">
-      <div class="hd-path">WHITE_FOX_CABIN / IRRIGATION <span style="color:#fff;font-size:11px;margin-left:8px;font-weight:bold">v1.0.7</span></div>
+      <div class="hd-path">WHITE_FOX_CABIN / IRRIGATION <span style="color:#fff;font-size:11px;margin-left:8px;font-weight:bold">v1.0.9</span></div>
       <div class="hd-ble" onclick="toggleBle()"><div class="ble-dot" id="bdot"></div><span id="blbl">CONNECT</span></div>
     </div>
     <div class="hd-bot"><div class="hd-title" id="stitle">Dashboard</div><div class="hd-clk" id="clk">--:--:--</div></div>
@@ -197,8 +197,16 @@ canvas{display:block;width:100%;height:100%}
       <div class="resetbar" onclick="doReset()">↺ FACTORY RESET</div>
       <div class="cfgnote">Changes are RAM only until SAVE CONFIG writes to flash.<br>Factory reset restores defaults in RAM — send SAVE CONFIG to persist.</div>
     </div>
+    <div class="scr" id="scr-help">
+      <div class="card"><div class="ch"><div class="cl">HELP</div><div class="cl">WHITE FOX IRRIGATION</div></div><div style="font-size:10px;line-height:1.7;color:var(--tx)">Use this page instead of helper commands like <b>config</b>, <b>info</b>, or <b>101</b>.</div></div>
+      <div class="card"><div class="ch"><div class="cl">WATERING RULES</div></div><div style="font-size:10px;line-height:1.7;color:var(--tx)">1) <b>Normal watering</b>: Soil below moisture threshold, inside time window, and cooldown clear.<br>2) <b>Emergency watering</b>: Soil below emergency threshold, ignores time window, but still obeys cooldown.<br>3) <b>Manual watering</b>: WATER ON starts manual run duration; cooldown applies after stop.</div></div>
+      <div class="card"><div class="ch"><div class="cl">TIME WINDOW</div></div><div style="font-size:10px;line-height:1.7;color:var(--tx)">Use 24-hour values.<br>Examples: 07 = 7am, 14 = 2pm.<br>For 11am to 2pm set:<br><b>05 WATER WINDOW START = 11</b><br><b>06 WATER WINDOW END = 14</b></div></div>
+      <div class="card"><div class="ch"><div class="cl">SETTINGS WORKFLOW</div></div><div style="font-size:10px;line-height:1.7;color:var(--tx)">Change values in Settings list -> values are temporary in RAM.<br>Tap <b>SAVE CONFIG</b> to persist through reboot/power loss.<br><b>FACTORY RESET</b> restores compile-time defaults to RAM; save to persist.</div></div>
+      <div class="card"><div class="ch"><div class="cl">KEY VALUES</div></div><div style="font-size:10px;line-height:1.7;color:var(--tx)"><b>04 MOISTURE THRESHOLD PERCENT</b>: normal dry trigger<br><b>07 EMERGENCY THRESHOLD PERCENT</b>: critical dry trigger (must be lower than #4)<br><b>01 WATERING DURATION</b>: auto run time<br><b>02 WATERING COOLDOWN</b>: lockout after run<br><b>03 MANUAL WATERING DURATION</b>: WATER ON run time</div></div>
+      <div class="card"><div class="ch"><div class="cl">RTC + LOG</div></div><div style="font-size:10px;line-height:1.7;color:var(--tx)">Settings screen auto-refreshes sensor time when opened.<br>Use <b>SYNC SENSOR TO PHONE TIME</b> to set RTC quickly.<br>BLE LOG is live like terminal <b>tail -f</b>.</div></div>
+    </div>
   </div>
-  <div id="tabs"><div class="tab on" id="tab-dash" onclick="showScr('dash','Dashboard')">DASH</div><div class="tab" id="tab-hist" onclick="showScr('hist','History')">HISTORY</div><div class="tab" id="tab-cfg" onclick="showScr('cfg','Settings')">SETTINGS</div></div>
+  <div id="tabs"><div class="tab on" id="tab-dash" onclick="showScr('dash','Dashboard')">DASH</div><div class="tab" id="tab-hist" onclick="showScr('hist','History')">HISTORY</div><div class="tab" id="tab-cfg" onclick="showScr('cfg','Settings')">SETTINGS</div><div class="tab" id="tab-help" onclick="showScr('help','Help')">HELP</div></div>
 </div>
 <div id="modal" class="hide"><div class="ms"><div class="mt" id="mtitle"></div><div class="md" id="mdesc"></div><div class="munit" id="munit"></div><input class="mi" id="minput" type="number" inputmode="decimal" onkeydown="mkey(event)"><div class="mbtns"><button class="mcanc" onclick="closeM()">CANCEL</button><button class="maply" onclick="applyM()">APPLY</button></div></div></div>
 <script>
@@ -216,7 +224,7 @@ function fmtCountdown(sec){sec=Math.max(0,Math.round(sec));if(sec>=3600)return M
 function pad(v){return String(v).padStart(2,'0');}
 const SVC='00000001-0000-feed-0000-000000000000',RXU='00000002-0000-feed-0000-000000000000',TXU='00000003-0000-feed-0000-000000000000';
 function setPumpState({pump,mode,startNow=false,durationMs=null}){S.pump=!!pump;S.mode=mode;if(startNow)S.waterStartedAt=Date.now();if(durationMs!==null)S.waterDuration=durationMs;}
-async function connectBle(){const em=document.getElementById('err-msg');em.textContent='Scanning...';try{dev=await navigator.bluetooth.requestDevice({filters:[{name:'WhiteFox Irrigation'}],optionalServices:[SVC]});dev.addEventListener('gattserverdisconnected',onDC);srv=await dev.gatt.connect();const svc=await srv.getPrimaryService(SVC);txC=await svc.getCharacteristic(TXU);rxC=await svc.getCharacteristic(RXU);await txC.startNotifications();txC.addEventListener('characteristicvaluechanged',onNotify);setConn(true);document.getElementById('overlay').classList.add('hide');em.textContent='';log('BLE connected.',true);setTimeout(()=>{sendCmd('config');sendCmd('time');},800);}catch(e){em.textContent=e.message||'Connection failed';log('Error: '+(e.message||e),false,true);}}
+async function connectBle(){const em=document.getElementById('err-msg');em.textContent='Scanning...';try{dev=await navigator.bluetooth.requestDevice({filters:[{name:'WhiteFox Irrigation'}],optionalServices:[SVC]});dev.addEventListener('gattserverdisconnected',onDC);srv=await dev.gatt.connect();const svc=await srv.getPrimaryService(SVC);txC=await svc.getCharacteristic(TXU);rxC=await svc.getCharacteristic(RXU);await txC.startNotifications();txC.addEventListener('characteristicvaluechanged',onNotify);setConn(true);document.getElementById('overlay').classList.add('hide');em.textContent='';log('BLE connected.',true);setTimeout(()=>{sendCmd('time');},800);}catch(e){em.textContent=e.message||'Connection failed';log('Error: '+(e.message||e),false,true);}}
 async function toggleBle(){if(S.conn){if(dev&&dev.gatt.connected)dev.gatt.disconnect();}else connectBle();}
 function onDC(){setConn(false);log('Disconnected',false,true);cmdQueue.length=0;cmdInFlight=false;document.getElementById('overlay').classList.remove('hide');document.querySelectorAll('.scr').forEach(s=>s.classList.add('banner-pad'));setPumpState({pump:false,mode:'UNKNOWN',durationMs:0});S.flow=0;dash();}
 function setConn(v){S.conn=v;document.getElementById('bdot').className='ble-dot'+(v?' on':'');document.getElementById('blbl').textContent=v?'BLE LINK':'CONNECT';if(v){document.getElementById('overlay').classList.add('hide');document.querySelectorAll('.scr').forEach(s=>s.classList.remove('banner-pad'));}}
