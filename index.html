@@ -1,1488 +1,334 @@
-/*
- * WhiteFox Irrigation — receiver firmware (Arduino: ESP32_Now_Protocol_Recieve.ino — source of truth here).
- *
- * Role: Listens for soil moisture samples over ESP-NOW (from the soil transmit sketch;
- *       see sibling Arduino project ESP32_Now_Protocol_Transmit.ino, not this repo),
- * decides auto / emergency watering, drives the pump relay, counts flow pulses,
- * keeps RTC time, and talks to the phone over BLE (GATT) using the same line
- * protocol that index.html parses.
- *
- * Data stores:
- *   NVS namespace "persist" — user settings (durations, thresholds, calibration).
- *   NVS namespace "wfhist"  — ring buffer of completed pump runs + fault events.
- *
- * Related files: index.html (BLE UI). Soil transmitter: ESP32_Now_Protocol_Transmit.ino (separate folder).
- */
-#include <Arduino.h>
-#include <BLEDevice.h>
-#include <BLEServer.h>
-#include <BLEUtils.h>
-#include <BLE2902.h>
-#include <esp_now.h>
-#include <WiFi.h>
-#include <Wire.h>
-#include <RTClib.h>
-#include <Preferences.h>
-#include <string.h>
-#include <stdlib.h>
-
-// -----------------------------------------------------------------------------
-// Enums + BLE link globals before any function: Arduino inserts forward prototypes
-// at the top of the sketch; types in signatures must exist first. BLE objects
-// must precede bleSend() which reads deviceConnected.
-// -----------------------------------------------------------------------------
-enum RunReason : uint8_t { RUN_MANUAL = 0, RUN_AUTO = 1, RUN_EMERGENCY = 2 };
-enum RunEndKind : uint8_t { RUN_END_TIMER = 0, RUN_END_MANUAL_OFF = 1, RUN_END_FLOW_FAULT = 2 };
-enum EventKind : uint8_t {
-  EVT_FLOW_FAULT = 1,
-  EVT_ESP_NOW_FAIL = 2,
-  EVT_RTC_NO_DEV = 3,
-  EVT_RTC_LOST_PWR = 4,
-  EVT_BLE_UNK_CMD = 5,
-  EVT_CFG_REJECT = 6,
-  EVT_UNEXPECTED_FLOW = 7,
-};
-BLEServer *pServer = nullptr;
-BLECharacteristic *pTxCharacteristic = nullptr;
-bool deviceConnected = false;
-bool oldDeviceConnected = false;
-// =============================================================================
-// Pin map & BLE UUIDs (UUIDs must match index.html SVC / RX / TX constants)
-// =============================================================================
-#define FLOW_PIN      14
-#define RELAY_PIN     26
-#define LED_BUILTIN    2
-
-#define SERVICE_UUID           "00000001-0000-FEED-0000-000000000000"
-#define CHARACTERISTIC_UUID_RX "00000002-0000-FEED-0000-000000000000"
-#define CHARACTERISTIC_UUID_TX "00000003-0000-FEED-0000-000000000000"
-
-// =============================================================================
-// Factory defaults — copied into RAM on explicit factory reset; "persist" NVS
-// otherwise overrides these on boot via loadPersistentDefaults().
-// =============================================================================
-const uint32_t FACTORY_WATERING_DURATION           = 60000;
-const uint32_t FACTORY_WATERING_COOLDOWN           = 60000;
-const uint32_t FACTORY_MANUAL_WATERING_DURATION    = 60000;
-const int      FACTORY_MOISTURE_THRESHOLD_PERCENT  = 50;
-const int      FACTORY_WATER_WINDOW_START          = 7;
-const int      FACTORY_WATER_WINDOW_END            = 11;
-const int      FACTORY_EMERGENCY_THRESHOLD_PERCENT = 20;
-const int      FACTORY_WET_ADC                     = 1400;
-const int      FACTORY_DRY_ADC                     = 2900;
-const float    FACTORY_SOIL_SMOOTHING_FACTOR       = 100;
-const float    FACTORY_FLOW_SMOOTHING_FACTOR       = 20;
-const float    FACTORY_FLOW_PULSE                  = 4.5;
-const uint32_t FACTORY_FLOW_WINDOW                 = 1000;
-const uint32_t FACTORY_PHONE_NOTIFICATION_DELAY    = 2000;
-const bool     FACTORY_FLOW_CHECK_ENABLED           = false;
-
-// =============================================================================
-// Working copies of settings (RAM). BLE "set" updates RAM; "save config"
-// writes this snapshot to NVS "persist".
-// =============================================================================
-uint32_t WATERING_DURATION           = 0;
-uint32_t WATERING_COOLDOWN           = 0;
-uint32_t MANUAL_WATERING_DURATION    = 0;
-int      MOISTURE_THRESHOLD_PERCENT  = 0;
-int      WATER_WINDOW_START          = 0;
-int      WATER_WINDOW_END            = 0;
-int      EMERGENCY_THRESHOLD_PERCENT = 0;
-int      WET_ADC                     = 0;
-int      DRY_ADC                     = 0;
-float    SOIL_SMOOTHING_FACTOR       = 0;
-float    FLOW_SMOOTHING_FACTOR       = 0;
-float    FLOW_PULSE                  = 0;
-uint32_t FLOW_WINDOW                 = 0;
-uint32_t PHONE_NOTIFICATION_DELAY    = 0;
-/** Low-flow pump abort (see handleWatering). Declared here before save/load NVS helpers. */
-bool g_flowCheckEnabled = FACTORY_FLOW_CHECK_ENABLED;
-static const uint8_t FLOW_FAULT_LOCKOUT_THRESHOLD = 5;
-/** Persisted with "persist" NVS — must precede savePersistentDefaults / loadPersistentDefaults. */
-static uint8_t g_flowFaultConsecutive = 0;
-static bool g_flowFaultHardLockout = false;
-
-/** After a central connects, suppress loop() dash push telemetry until this time so chunked
- *  JSON notifies do not interleave with cfg/time/j replies on Web Bluetooth (Windows Chrome). */
-static uint32_t g_bleTelemetryHoldoffUntilMs = 0;
-
-/** When false, repeated flow faults never arm HARD LOCKOUT (field tuning). Fault stop + cooldown still apply. */
-static const bool kFlowHardLockoutEnabled = false;
-
-// =============================================================================
-// NVS "persist" — load/save/reset user-facing configuration (see bleHandleSet)
-// =============================================================================
-Preferences prefs;
-RTC_DS3231 rtc;
-static bool g_rtcReady = false;
-
-/** Reject garbage from I2C/DS3231 before formatting or using hour/window logic. */
-static bool rtcDateTimePlausible(const DateTime& t) {
-  int y = (int)t.year();
-  if (y < 2020 || y > 2100) return false;
-  uint8_t mo = t.month(), da = t.day(), hr = t.hour(), mn = t.minute(), se = t.second();
-  if (mo < 1 || mo > 12 || da < 1 || da > 31) return false;
-  if (hr > 23 || mn > 59 || se > 59) return false;
-  return true;
+<!DOCTYPE html>
+<!--
+  CURRENT BUILD VERSION: v1.2.7-field
+  Field build: Config = j cfg JSON first (ESP bleSendCfgJson), fallback read 0..15. RTC = time / read rtc / j time. Post-connect j dash.
+  History tab is static (no BLE). Receiver: ESP32_Now_Protocol_Recieve/ESP32_Now_Protocol_Recieve.ino (Arduino IDE).
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="theme-color" content="#0a0a0a">
+<title>WhiteFox Irrigation</title>
+<!-- PWA-ish meta: fullscreen feel on mobile; theme-color matches --bg -->
+<style>
+/* --- Design tokens: colors, monospace stack (matches terminal BLE log vibe) --- */
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+:root{
+  --bg:#0a0a0a;--bg2:#111;--bg3:#181818;
+  --b:#222;--b2:#2a2a2a;
+  --tx:#c8c8c8;--dim:#555;
+  --green:#00d4a0;--green2:#009e78;
+  --amber:#f0a030;--red:#e05050;--blue:#4488dd;
+  --white:#e8e8e8;
+  --f:'Courier New',Courier,monospace;
 }
-
-// =============================================================================
-// Flow meter — ISR counts pulses; getFlowRateLPM() integrates over FLOW_WINDOW.
-// =============================================================================
-volatile uint32_t pulseCount = 0;
-void IRAM_ATTR flowISR() { pulseCount++; }
-
-void savePersistentDefaults() {
-  prefs.begin("persist", false);
-  prefs.putUInt ("wat_dur",  WATERING_DURATION);
-  prefs.putUInt ("wat_cld",  WATERING_COOLDOWN);
-  prefs.putUInt ("wat_man",  MANUAL_WATERING_DURATION);
-  prefs.putInt  ("soil_thr", MOISTURE_THRESHOLD_PERCENT);
-  prefs.putInt  ("win_sta",  WATER_WINDOW_START);
-  prefs.putInt  ("win_end",  WATER_WINDOW_END);
-  prefs.putInt  ("emg_thr",  EMERGENCY_THRESHOLD_PERCENT);
-  prefs.putInt  ("soil_wet", WET_ADC);
-  prefs.putInt  ("soil_dry", DRY_ADC);
-  prefs.putFloat("soil_ema", SOIL_SMOOTHING_FACTOR);
-  prefs.putFloat("flow_ema", FLOW_SMOOTHING_FACTOR);
-  prefs.putFloat("flow_cal", FLOW_PULSE);
-  prefs.putUInt ("flow_smp", FLOW_WINDOW);
-  prefs.putUInt ("rpt_int",  PHONE_NOTIFICATION_DELAY);
-  prefs.putBool ("fc_chk",  g_flowCheckEnabled);
-  prefs.putUChar("ff_cnt",  g_flowFaultConsecutive);
-  prefs.putBool ("ff_lock", g_flowFaultHardLockout);
-  prefs.end();
-}
-
-void loadPersistentDefaults() {
-  prefs.begin("persist", true);
-  WATERING_DURATION           = prefs.getUInt ("wat_dur",  FACTORY_WATERING_DURATION);
-  WATERING_COOLDOWN           = prefs.getUInt ("wat_cld",  FACTORY_WATERING_COOLDOWN);
-  MANUAL_WATERING_DURATION    = prefs.getUInt ("wat_man",  FACTORY_MANUAL_WATERING_DURATION);
-  MOISTURE_THRESHOLD_PERCENT  = prefs.getInt  ("soil_thr", FACTORY_MOISTURE_THRESHOLD_PERCENT);
-  WATER_WINDOW_START          = prefs.getInt  ("win_sta",  FACTORY_WATER_WINDOW_START);
-  WATER_WINDOW_END            = prefs.getInt  ("win_end",  FACTORY_WATER_WINDOW_END);
-  EMERGENCY_THRESHOLD_PERCENT = prefs.getInt  ("emg_thr",  FACTORY_EMERGENCY_THRESHOLD_PERCENT);
-  WET_ADC                     = prefs.getInt  ("soil_wet", FACTORY_WET_ADC);
-  DRY_ADC                     = prefs.getInt  ("soil_dry", FACTORY_DRY_ADC);
-  SOIL_SMOOTHING_FACTOR       = prefs.getFloat("soil_ema", FACTORY_SOIL_SMOOTHING_FACTOR);
-  FLOW_SMOOTHING_FACTOR       = prefs.getFloat("flow_ema", FACTORY_FLOW_SMOOTHING_FACTOR);
-  FLOW_PULSE                  = prefs.getFloat("flow_cal", FACTORY_FLOW_PULSE);
-  FLOW_WINDOW                 = prefs.getUInt ("flow_smp", FACTORY_FLOW_WINDOW);
-  PHONE_NOTIFICATION_DELAY    = prefs.getUInt ("rpt_int",  FACTORY_PHONE_NOTIFICATION_DELAY);
-  if (PHONE_NOTIFICATION_DELAY < 500u) PHONE_NOTIFICATION_DELAY = FACTORY_PHONE_NOTIFICATION_DELAY;
-  g_flowCheckEnabled          = prefs.getBool  ("fc_chk",   FACTORY_FLOW_CHECK_ENABLED);
-  g_flowFaultConsecutive      = prefs.getUChar ("ff_cnt",   0);
-  g_flowFaultHardLockout      = prefs.getBool  ("ff_lock",  false);
-  if (g_flowFaultConsecutive > FLOW_FAULT_LOCKOUT_THRESHOLD) g_flowFaultConsecutive = FLOW_FAULT_LOCKOUT_THRESHOLD;
-  if (g_flowFaultConsecutive < FLOW_FAULT_LOCKOUT_THRESHOLD) g_flowFaultHardLockout = false;
-  if (!kFlowHardLockoutEnabled) {
-    g_flowFaultHardLockout = false;
-    g_flowFaultConsecutive = 0;
-  }
-  prefs.end();
-}
-
-void resetToFactory() {
-  WATERING_DURATION           = FACTORY_WATERING_DURATION;
-  WATERING_COOLDOWN           = FACTORY_WATERING_COOLDOWN;
-  MANUAL_WATERING_DURATION    = FACTORY_MANUAL_WATERING_DURATION;
-  MOISTURE_THRESHOLD_PERCENT  = FACTORY_MOISTURE_THRESHOLD_PERCENT;
-  WATER_WINDOW_START          = FACTORY_WATER_WINDOW_START;
-  WATER_WINDOW_END            = FACTORY_WATER_WINDOW_END;
-  EMERGENCY_THRESHOLD_PERCENT = FACTORY_EMERGENCY_THRESHOLD_PERCENT;
-  WET_ADC                     = FACTORY_WET_ADC;
-  DRY_ADC                     = FACTORY_DRY_ADC;
-  SOIL_SMOOTHING_FACTOR       = FACTORY_SOIL_SMOOTHING_FACTOR;
-  FLOW_SMOOTHING_FACTOR       = FACTORY_FLOW_SMOOTHING_FACTOR;
-  FLOW_PULSE                  = FACTORY_FLOW_PULSE;
-  FLOW_WINDOW                 = FACTORY_FLOW_WINDOW;
-  PHONE_NOTIFICATION_DELAY    = FACTORY_PHONE_NOTIFICATION_DELAY;
-  g_flowCheckEnabled          = FACTORY_FLOW_CHECK_ENABLED;
-}
-
-static void persistFlowFaultLockoutState() {
-  prefs.begin("persist", false);
-  prefs.putUChar("ff_cnt", g_flowFaultConsecutive);
-  prefs.putBool("ff_lock", g_flowFaultHardLockout);
-  prefs.end();
-}
-
-// =============================================================================
-// Soil smoothing — ESP-NOW callback updates smoothSoil under soilMux; loop /
-// BLE readers snapshot under the mutex. EMA alpha comes from SOIL_SMOOTHING_*.
-// =============================================================================
-portMUX_TYPE soilMux = portMUX_INITIALIZER_UNLOCKED;
-float avgSoil = 0, smoothSoil = 0, avgFlow = 0, smoothFlow = 0;
-bool firstSoil = true, firstFlow = true;
-
-float updateEMA(float newValue, float &runningAvg, bool &isFirst, float alpha) {
-  if (isFirst) { runningAvg = newValue; isFirst = false; }
-  else { runningAvg = (newValue * (alpha / 100.0f)) + (runningAvg * (1.0f - (alpha / 100.0f))); }
-  return runningAvg;
-}
-
-// =============================================================================
-// Pump runtime — startWatering/stopWatering toggle relay + LED; handleWatering()
-// enforces timer stop and flow guard. lastWaterStop drives cooldown policy.
-// =============================================================================
-bool watering = false;
-uint32_t waterStart = 0;
-uint32_t activeDuration = 60000;
-uint32_t lastWaterStop = 0;
-/** One emergency start allowed during active cooldown per boot; restored after BLE `water on`. */
-static bool emergencyCooldownBypassConsumed = false;
-
-/** Flow guard while relay is ON: shorter fault timing to stop dry-running faster. */
-static const uint32_t FLOW_PRIME_GRACE_MS = 8000;
-static const float    FLOW_MIN_LPM_WHILE_PUMPING = 0.12f;
-static const uint32_t FLOW_LOW_SUSTAIN_MS = 5000;
-static uint32_t lowFlowSinceMs = 0;
-static uint32_t pumpGuardPrevPulseCount = 0;
-static uint32_t pumpGuardLastPulseMs = 0;
-/** Unexpected-flow guard while pump is OFF: detect sustained flow + pulse motion. */
-static const float    FLOW_UNEXPECTED_MIN_LPM = 0.10f;
-static const uint32_t FLOW_UNEXPECTED_SUSTAIN_MS = 6000;
-static const uint32_t FLOW_UNEXPECTED_CLEAR_MS = 10000;
-static uint32_t unexpectedFlowSinceMs = 0;
-static uint32_t unexpectedFlowClearSinceMs = 0;
-static bool     unexpectedFlowLatched = false;
-static uint32_t offFlowPrevPulseCount = 0;
-
-// =============================================================================
-// Run history (NVS "wfhist") — compact rings for longer retention; BLE
-// "stats" dumps newest-first RUN/EV lines for the History tab on phone.
-// (RunReason / RunEndKind / EventKind declared at top for Arduino build.)
-// =============================================================================
-struct __attribute__((packed)) RunLogEntry {
-  uint32_t unixEnd;
-  uint16_t durationSec;
-  uint16_t deciLiters;
-  uint8_t meta;  // bit0..1 reason, bit2..3 end kind, bit7 valid
-};
-
-static constexpr int RUN_LOG_CAP = 96;
-static RunLogEntry g_runRing[RUN_LOG_CAP];
-static int g_runWriteIdx = 0;
-static float g_histTotalL = 0;
-static float g_histDayL = 0;
-static float g_histMonthL = 0;
-static uint32_t g_histDayKey = 0;    // YYYYMMDD
-static uint32_t g_histMonthKey = 0;  // YYYYMM
-static uint32_t g_histNMan = 0, g_histNAuto = 0, g_histNEmg = 0;
-static uint32_t g_runPulseStart = 0;
-static RunReason g_runReason = RUN_MANUAL;
-
-struct __attribute__((packed)) EventLogEntry {
-  uint32_t unixTs;
-  uint8_t code;   // 0 = empty slot
-};
-
-static constexpr int EVT_LOG_CAP = 192;
-static EventLogEntry g_evtRing[EVT_LOG_CAP];
-static int g_evtWriteIdx = 0;
-
-// EventKind codes must stay in sync with index.html EVT_NAMES.
-
-void loadRunHistoryFromPrefs();
-void saveRunHistoryToPrefs();
-void recordRunStop(uint32_t waterStartMs, RunEndKind howEnded);
-void logEvent(EventKind kind);
-void bleSend(const char* msg);
-void bleHandleJsonCmd(const String& rx);
-void bleSendDashJson(uint32_t rid, bool isPush, bool compactTelemetry = false);
-void bleSendCfgJson(uint32_t rid, bool isPush);
-void bleSendTimeJson(uint32_t rid);
-void bleSendChunkedText(const char* textWithOptionalTrailingNl);
-
-// =============================================================================
-// Watering policy helpers — used from ESP-NOW path and manual BLE commands.
-// =============================================================================
-bool isCooldownClear() {
-  return (lastWaterStop == 0) || (millis() - lastWaterStop >= WATERING_COOLDOWN);
-}
-
-bool isInWaterWindow(int hourNow) {
-  return (hourNow >= WATER_WINDOW_START && hourNow < WATER_WINDOW_END);
-}
-
-bool startWatering(uint32_t duration, RunReason reason) {
-  if (kFlowHardLockoutEnabled && g_flowFaultHardLockout) {
-    Serial.println("FLOW LOCKOUT: watering blocked after repeated flow faults");
-    bleSend("FLOW LOCKOUT: 5 consecutive flow faults. Reset required.\n");
-    return false;
-  }
-  lastWaterStop = 0;
-  if (!watering) {
-    g_runReason = reason;
-    noInterrupts();
-    g_runPulseStart = pulseCount;
-    interrupts();
-  }
-  digitalWrite(LED_BUILTIN, HIGH);
-  digitalWrite(RELAY_PIN, HIGH);
-  waterStart = millis();
-  activeDuration = duration;
-  watering = true;
-  lowFlowSinceMs = 0;
-  noInterrupts();
-  pumpGuardPrevPulseCount = pulseCount;
-  interrupts();
-  pumpGuardLastPulseMs = millis();
-  Serial.println("Watering started");
-  bleSendDashJson(0, true, false);
-  return true;
-}
-
-void stopWatering(RunEndKind howEnded) {
-  if (watering) {
-    recordRunStop(waterStart, howEnded);
-    digitalWrite(LED_BUILTIN, LOW);
-    digitalWrite(RELAY_PIN, LOW);
-    watering = false;
-    lowFlowSinceMs = 0;
-    lastWaterStop = millis();
-    if (howEnded == RUN_END_FLOW_FAULT) {
-      // After a low/no-flow trip, enforce full cooldown (no emergency bypass restart).
-      emergencyCooldownBypassConsumed = true;
-      if (kFlowHardLockoutEnabled) {
-        if (g_flowFaultConsecutive < FLOW_FAULT_LOCKOUT_THRESHOLD) g_flowFaultConsecutive++;
-        if (g_flowFaultConsecutive >= FLOW_FAULT_LOCKOUT_THRESHOLD) {
-          g_flowFaultConsecutive = FLOW_FAULT_LOCKOUT_THRESHOLD;
-          g_flowFaultHardLockout = true;
-          bleSend("FLOW LOCKOUT: 5 consecutive flow faults. Reset required.\n");
-          Serial.println("FLOW LOCKOUT armed (5 consecutive flow faults)");
-        }
-      } else {
-        g_flowFaultConsecutive = 0;
-        g_flowFaultHardLockout = false;
-      }
-      persistFlowFaultLockoutState();
-    } else if (g_flowFaultConsecutive != 0 || g_flowFaultHardLockout) {
-      g_flowFaultConsecutive = 0;
-      g_flowFaultHardLockout = false;
-      persistFlowFaultLockoutState();
-    }
-    Serial.println("Watering stopped — cooldown started");
-    bleSendDashJson(0, true, false);
-  } else {
-    // Idempotent off — still ensure outputs are low
-    digitalWrite(LED_BUILTIN, LOW);
-    digitalWrite(RELAY_PIN, LOW);
-  }
-}
-
-float getFlowRateLPM() {
-  static uint32_t lastTime = 0;
-  static uint32_t lastPulses = 0;
-  uint32_t now = millis();
-  uint32_t elapsed = now - lastTime;
-  if (elapsed < FLOW_WINDOW) return -1;
-
-  noInterrupts();
-  uint32_t pulses = pulseCount - lastPulses;
-  lastPulses = pulseCount;
-  interrupts();
-  lastTime = now;
-
-  float rate = (pulses / FLOW_PULSE) / (elapsed / 1000.0f);
-  smoothFlow = (rate == 0) ? 0 : updateEMA(rate, avgFlow, firstFlow, FLOW_SMOOTHING_FACTOR);
-  return rate;
-}
-
-// =============================================================================
-// ESP-NOW payload — packed; must match ESP32_Now_Protocol_Transmit.ino EspNowSoilPacket.
-// =============================================================================
-struct __attribute__((packed)) EspNowSoilPacket {
-  int32_t adc_raw;
-};
-
-int latestSoilRaw = -1;
-/** Set true after first valid EspNowSoilPacket; avoids BLE "Soil: 100%" from boot seed. */
-static bool g_soilEspNowEver = false;
-/** millis() of previous accepted soil packet; auto/emergency need gap ≤ 2 min (first packet exempt). */
-static uint32_t g_lastSoilEspNowPacketMs = 0;
-static const uint32_t SOIL_AUTO_MAX_PACKET_GAP_MS = 120000UL;
-
-// Map calibrated dry/wet ADC endpoints to 0–100% for BLE + Serial.
-
-int getSoilPercent(int raw) {
-  return constrain(map(raw, DRY_ADC, WET_ADC, 0, 100), 0, 100);
-}
-
-// =============================================================================
-// NVS "wfhist" — totals, per-reason run counts, packed run ring + event ring.
-// loadRunHistoryFromPrefs() runs once in setup(); each append saves whole rings.
-// =============================================================================
-void saveRunHistoryToPrefs() {
-  prefs.begin("wfhist", false);
-  prefs.putFloat("totL", g_histTotalL);
-  prefs.putFloat("dayL", g_histDayL);
-  prefs.putFloat("monL", g_histMonthL);
-  prefs.putUInt("dayK", g_histDayKey);
-  prefs.putUInt("monK", g_histMonthKey);
-  prefs.putUInt("nMan", g_histNMan);
-  prefs.putUInt("nAut", g_histNAuto);
-  prefs.putUInt("nEmg", g_histNEmg);
-  prefs.putInt("head", g_runWriteIdx);
-  prefs.putBytes("ring", g_runRing, sizeof(g_runRing));
-  prefs.putInt("evhead", g_evtWriteIdx);
-  prefs.putBytes("evring", g_evtRing, sizeof(g_evtRing));
-  prefs.end();
-}
-
-void loadRunHistoryFromPrefs() {
-  prefs.begin("wfhist", true);
-  g_histTotalL = prefs.getFloat("totL", 0.0f);
-  g_histDayL = prefs.getFloat("dayL", 0.0f);
-  g_histMonthL = prefs.getFloat("monL", 0.0f);
-  g_histDayKey = prefs.getUInt("dayK", 0);
-  g_histMonthKey = prefs.getUInt("monK", 0);
-  g_histNMan = prefs.getUInt("nMan", 0);
-  g_histNAuto = prefs.getUInt("nAut", 0);
-  g_histNEmg = prefs.getUInt("nEmg", 0);
-  g_runWriteIdx = prefs.getInt("head", 0);
-  if (g_runWriteIdx < 0 || g_runWriteIdx >= RUN_LOG_CAP) g_runWriteIdx = 0;
-  size_t n = prefs.getBytes("ring", g_runRing, sizeof(g_runRing));
-  if (n != sizeof(g_runRing)) {
-    memset(g_runRing, 0, sizeof(g_runRing));
-    g_runWriteIdx = 0;
-  }
-  g_evtWriteIdx = prefs.getInt("evhead", 0);
-  if (g_evtWriteIdx < 0 || g_evtWriteIdx >= EVT_LOG_CAP) g_evtWriteIdx = 0;
-  n = prefs.getBytes("evring", g_evtRing, sizeof(g_evtRing));
-  if (n != sizeof(g_evtRing)) {
-    memset(g_evtRing, 0, sizeof(g_evtRing));
-    g_evtWriteIdx = 0;
-  }
-  prefs.end();
-
-  // After boot, align day/month counters to current RTC period if available.
-  if (g_rtcReady) {
-    DateTime now = rtc.now();
-    if (rtcDateTimePlausible(now)) {
-      uint32_t dayKeyNow = (uint32_t)now.year() * 10000UL + (uint32_t)now.month() * 100UL + (uint32_t)now.day();
-      uint32_t monthKeyNow = (uint32_t)now.year() * 100UL + (uint32_t)now.month();
-      if (g_histDayKey != dayKeyNow) {
-        g_histDayKey = dayKeyNow;
-        g_histDayL = 0.0f;
-      }
-      if (g_histMonthKey != monthKeyNow) {
-        g_histMonthKey = monthKeyNow;
-        g_histMonthL = 0.0f;
-      }
-    }
-  }
-}
-
-/** Wipe run totals, run ring, event ring, and NVS namespace "wfhist" (factory reset for history only). */
-void clearRunHistory() {
-  g_histTotalL = 0.0f;
-  g_histDayL = 0.0f;
-  g_histMonthL = 0.0f;
-  g_histDayKey = 0;
-  g_histMonthKey = 0;
-  g_histNMan = g_histNAuto = g_histNEmg = 0;
-  g_runWriteIdx = 0;
-  memset(g_runRing, 0, sizeof(g_runRing));
-  g_evtWriteIdx = 0;
-  memset(g_evtRing, 0, sizeof(g_evtRing));
-  prefs.begin("wfhist", false);
-  prefs.clear();
-  prefs.end();
-  saveRunHistoryToPrefs();
-  Serial.println("Run history cleared (NVS wfhist + RAM rings)");
-}
-
-// Append one fault/event row (RTC unix when valid), persist full event ring to NVS.
-
-void logEvent(EventKind kind) {
-  uint32_t u = 0;
-  if (g_rtcReady) {
-    DateTime t = rtc.now();
-    if (t.year() >= 2020) u = (uint32_t)t.unixtime();
-  }
-
-  EventLogEntry& e = g_evtRing[g_evtWriteIdx];
-  e.unixTs = u;
-  e.code = (uint8_t)kind;
-  g_evtWriteIdx = (g_evtWriteIdx + 1) % EVT_LOG_CAP;
-  saveRunHistoryToPrefs();
-}
-
-// Close out a pump run: pulse delta -> liters, bump totals, append run ring entry.
-
-void recordRunStop(uint32_t waterStartMs, RunEndKind howEnded) {
-  uint32_t pcNow;
-  noInterrupts();
-  pcNow = pulseCount;
-  interrupts();
-  uint32_t pDelta = (pcNow >= g_runPulseStart) ? (pcNow - g_runPulseStart)
-                                               : (UINT32_MAX - g_runPulseStart + pcNow + 1u);
-  float L = (FLOW_PULSE > 0.001f) ? ((float)pDelta / FLOW_PULSE) : 0.0f;
-  uint32_t durSec = (millis() - waterStartMs) / 1000UL;
-  if (durSec > 65535UL) durSec = 65535;
-
-  uint32_t unixEnd = 0;
-  uint32_t dayKeyNow = 0;
-  uint32_t monthKeyNow = 0;
-  if (g_rtcReady) {
-    DateTime t = rtc.now();
-    if (rtcDateTimePlausible(t)) {
-      unixEnd = (uint32_t)t.unixtime();
-      dayKeyNow = (uint32_t)t.year() * 10000UL + (uint32_t)t.month() * 100UL + (uint32_t)t.day();
-      monthKeyNow = (uint32_t)t.year() * 100UL + (uint32_t)t.month();
-    }
-  }
-
-  RunLogEntry& e = g_runRing[g_runWriteIdx];
-  e.unixEnd = unixEnd;
-  e.durationSec = (uint16_t)durSec;
-  int deci = (int)(L * 10.0f + 0.5f);
-  if (deci < 0) deci = 0;
-  if (deci > 65535) deci = 65535;
-  e.deciLiters = (uint16_t)deci;
-  e.meta = (uint8_t)(0x80 | (((uint8_t)howEnded & 0x03) << 2) | ((uint8_t)g_runReason & 0x03));
-  g_runWriteIdx = (g_runWriteIdx + 1) % RUN_LOG_CAP;
-
-  g_histTotalL += L;
-  if (dayKeyNow != 0) {
-    if (g_histDayKey != dayKeyNow) {
-      g_histDayKey = dayKeyNow;
-      g_histDayL = 0.0f;
-    }
-    g_histDayL += L;
-  }
-  if (monthKeyNow != 0) {
-    if (g_histMonthKey != monthKeyNow) {
-      g_histMonthKey = monthKeyNow;
-      g_histMonthL = 0.0f;
-    }
-    g_histMonthL += L;
-  }
-  switch (g_runReason) {
-    case RUN_MANUAL: g_histNMan++; break;
-    case RUN_AUTO: g_histNAuto++; break;
-    case RUN_EMERGENCY: g_histNEmg++; break;
-    default: break;
-  }
-  saveRunHistoryToPrefs();
-}
-
-// --- BLE JSON (index.html): ESP computes dashboard + config + history; phone uses j <op> <rid> RPC + chunked H lines ---
-static void bleRefreshHistBucketsFromRtc() {
-  if (!g_rtcReady) return;
-  DateTime now = rtc.now();
-  if (!rtcDateTimePlausible(now)) return;
-  uint32_t dayKeyNow = (uint32_t)now.year() * 10000UL + (uint32_t)now.month() * 100UL + (uint32_t)now.day();
-  uint32_t monthKeyNow = (uint32_t)now.year() * 100UL + (uint32_t)now.month();
-  bool changed = false;
-  if (g_histDayKey != dayKeyNow) {
-    g_histDayKey = dayKeyNow;
-    g_histDayL = 0.0f;
-    changed = true;
-  }
-  if (g_histMonthKey != monthKeyNow) {
-    g_histMonthKey = monthKeyNow;
-    g_histMonthL = 0.0f;
-    changed = true;
-  }
-  if (changed) saveRunHistoryToPrefs();
-}
-
-void bleSendChunkedText(const char* textWithOptionalTrailingNl) {
-  if (!deviceConnected || !textWithOptionalTrailingNl) return;
-  size_t len = strlen(textWithOptionalTrailingNl);
-  while (len > 0 && textWithOptionalTrailingNl[len - 1] == '\n') len--;
-  if (len == 0) return;
-  /* Small chunks + low single-line cap: default ATT MTU is ~23 B; phone may not raise
-   * server MTU before first JSON. Prevents truncated cfg/dash JSON and broken H reassembly
-   * when loop() interleaved telemetry with multi-notify RPC replies (fixed via g_bleRpcTxNest). */
-  const size_t chunkSz = 14;
-  const size_t maxSingle = 20;
-  if (len <= maxSingle) {
-    char one[96];
-    snprintf(one, sizeof(one), "%.*s\n", (int)len, textWithOptionalTrailingNl);
-    bleSend(one);
-    return;
-  }
-  const size_t total = (len + chunkSz - 1) / chunkSz;
-  for (size_t i = 0; i < total; i++) {
-    char line[48];
-    size_t off = i * chunkSz;
-    size_t n = chunkSz;
-    if (off + n > len) n = len - off;
-    snprintf(line, sizeof(line), "H%zu/%zu|", i, total);
-    size_t hp = strlen(line);
-    if (hp + n + 2 > sizeof(line)) n = sizeof(line) - hp - 2;
-    memcpy(line + hp, textWithOptionalTrailingNl + off, n);
-    line[hp + n] = '\n';
-    line[hp + n + 1] = '\0';
-    bleSend(line);
-    /* Extra pacing between H… fragments: Windows + Web Bluetooth can drop or reorder
-     * if notifies fire back-to-back faster than the JS parser drains them. */
-    if (total > 1) delay(6);
-  }
-}
-
-static void buildDashNx(char* nx, size_t nxcap, int soilPct) {
-  if (kFlowHardLockoutEnabled && g_flowFaultHardLockout) {
-    snprintf(nx, nxcap, "FLOW LOCKOUT active — reset in Settings");
-    return;
-  }
-  if (watering) {
-    if (g_runReason == RUN_EMERGENCY) snprintf(nx, nxcap, "EMERGENCY watering");
-    else snprintf(nx, nxcap, "watering");
-    return;
-  }
-  bool cd = (lastWaterStop != 0) && !isCooldownClear();
-  if (cd) {
-    if (soilPct >= 0 && soilPct < EMERGENCY_THRESHOLD_PERCENT) snprintf(nx, nxcap, "EMERGENCY dry — see cooldown above");
-    else if (soilPct >= 0 && soilPct < MOISTURE_THRESHOLD_PERCENT) snprintf(nx, nxcap, "soil dry — waiting for cooldown");
-    else snprintf(nx, nxcap, "post-watering cooldown active");
-    return;
-  }
-  if (!g_soilEspNowEver || soilPct < 0) {
-    snprintf(nx, nxcap, "no soil data — check ESP-NOW soil sender");
-    return;
-  }
-  if (soilPct < EMERGENCY_THRESHOLD_PERCENT) {
-    snprintf(nx, nxcap, "EMERGENCY — soil below emergency threshold");
-    return;
-  }
-  bool iw = false;
-  if (g_rtcReady) {
-    DateTime now = rtc.now();
-    if (rtcDateTimePlausible(now)) {
-      iw = isInWaterWindow(now.hour());
-    }
-  }
-  if (!iw && soilPct < MOISTURE_THRESHOLD_PERCENT) {
-    snprintf(nx, nxcap, "soil dry — window opens at %02d:00", WATER_WINDOW_START);
-    return;
-  }
-  if (!iw) {
-    snprintf(nx, nxcap, "window opens at %02d:00", WATER_WINDOW_START);
-    return;
-  }
-  if (soilPct < MOISTURE_THRESHOLD_PERCENT) {
-    snprintf(nx, nxcap, "soil dry — watering pending");
-    return;
-  }
-  snprintf(nx, nxcap, "soil OK — monitoring");
-}
-
-/** Escape ", \\, and control chars so nx is safe inside JSON string literals. */
-static void bleJsonEscapeStr(const char* src, char* dst, size_t dstcap) {
-  size_t j = 0;
-  for (size_t i = 0; src[i] && j + 2 < dstcap; ++i) {
-    unsigned char c = (unsigned char)src[i];
-    if (c == '"' || c == '\\') {
-      dst[j++] = '\\';
-      dst[j++] = (char)c;
-    } else if (c < 32) {
-      dst[j++] = ' ';
-    } else {
-      dst[j++] = (char)c;
-    }
-  }
-  dst[j] = '\0';
-}
-
-void bleSendDashJson(uint32_t rid, bool isPush, bool compactTelemetry) {
-  if (!deviceConnected) return;
-  (void)getFlowRateLPM();
-  int soilPct = -1;
-  if (g_soilEspNowEver) {
-    portENTER_CRITICAL(&soilMux);
-    int rawSnap = (int)(smoothSoil + 0.5f);
-    portEXIT_CRITICAL(&soilMux);
-    soilPct = getSoilPercent(rawSnap);
-  }
-  char nx[128];
-  buildDashNx(nx, sizeof(nx), soilPct);
-  char sl[8] = "ND";
-  if (g_soilEspNowEver && soilPct >= 0) {
-    if (soilPct < EMERGENCY_THRESHOLD_PERCENT) strcpy(sl, "EMG");
-    else if (soilPct < MOISTURE_THRESHOLD_PERCENT) strcpy(sl, "DRY");
-    else strcpy(sl, "OK");
-  }
-  const char* md = "IDL";
-  if (watering) md = (g_runReason == RUN_EMERGENCY) ? "EMG" : "RUN";
-  uint32_t rw = 0;
-  if (watering) {
-    uint32_t e = (uint32_t)(millis() - waterStart);
-    if (e < activeDuration) rw = (activeDuration - e) / 1000;
-  }
-  int cd = 0;
-  uint32_t cs = 0;
-  if (!watering && lastWaterStop != 0) {
-    uint32_t since = millis() - lastWaterStop;
-    if (since < WATERING_COOLDOWN) {
-      cd = 1;
-      cs = (WATERING_COOLDOWN - since) / 1000;
-    }
-  }
-  int iw = 0;
-  char rtcbuf[24] = "";
-  if (g_rtcReady) {
-    DateTime dt = rtc.now();
-    if (rtcDateTimePlausible(dt)) {
-      iw = isInWaterWindow(dt.hour()) ? 1 : 0;
-      snprintf(rtcbuf, sizeof(rtcbuf), "%04d-%02d-%02d %02d:%02d:%02d",
-               dt.year(), dt.month(), dt.day(), dt.hour(), dt.minute(), dt.second());
-    }
-  }
-  int fl = (smoothFlow > 0.1f) ? 1 : 0;
-  int adc = latestSoilRaw;
-  char ridStr[24] = "";
-  if (rid != 0) snprintf(ridStr, sizeof(ridStr), "\"rid\":%lu,", (unsigned long)rid);
-  char pushStr[14] = "";
-  if (isPush) strcpy(pushStr, "\"push\":1,");
-  char nxEsc[200];
-  bleJsonEscapeStr(nx, nxEsc, sizeof(nxEsc));
-  char buf[768];
-  const bool compact = isPush && compactTelemetry && rid == 0;
-  if (compact) {
-    snprintf(buf, sizeof(buf),
-             "{%s\"t\":\"d\",\"s\":%d,\"a\":%d,\"f\":%.2f,\"sl\":\"%s\",\"fl\":%d,\"iw\":%d,"
-             "\"lko\":%d,\"pv\":%d,\"md\":\"%s\",\"rw\":%lu,\"cd\":%d,\"cs\":%lu,\"wm\":%lu}\n",
-             pushStr,
-             (g_soilEspNowEver ? soilPct : -1), adc, (double)smoothFlow, sl, fl, iw,
-             g_flowFaultHardLockout ? 1 : 0, watering ? 1 : 0, md,
-             (unsigned long)rw, cd, (unsigned long)cs,
-             (unsigned long)(watering ? activeDuration : 0UL));
-  } else {
-    snprintf(buf, sizeof(buf),
-             "{%s%s\"t\":\"d\",\"s\":%d,\"a\":%d,\"f\":%.2f,\"sl\":\"%s\",\"fl\":%d,"
-             "\"thr\":%d,\"emg\":%d,\"ws\":%d,\"we\":%d,\"iw\":%d,"
-             "\"lko\":%d,\"pv\":%d,\"md\":\"%s\",\"rw\":%lu,\"cd\":%d,\"cs\":%lu,"
-             "\"wm\":%lu,\"nx\":\"%s\",\"rtc\":\"%s\"}\n",
-             pushStr, ridStr,
-             (g_soilEspNowEver ? soilPct : -1), adc, (double)smoothFlow, sl, fl,
-             MOISTURE_THRESHOLD_PERCENT, EMERGENCY_THRESHOLD_PERCENT,
-             WATER_WINDOW_START, WATER_WINDOW_END, iw,
-             g_flowFaultHardLockout ? 1 : 0, watering ? 1 : 0, md,
-             (unsigned long)rw, cd, (unsigned long)cs,
-             (unsigned long)(watering ? activeDuration : 0UL), nxEsc, rtcbuf);
-  }
-  bleSendChunkedText(buf);
-}
-
-void bleSendCfgJson(uint32_t rid, bool isPush) {
-  if (!deviceConnected) return;
-  char ridStr[24] = "";
-  if (rid != 0) snprintf(ridStr, sizeof(ridStr), "\"rid\":%lu,", (unsigned long)rid);
-  char pushStr[14] = "";
-  if (isPush) strcpy(pushStr, "\"push\":1,");
-  char buf[640];
-  snprintf(buf, sizeof(buf),
-           "{%s%s\"t\":\"c\",\"lko\":%d,"
-           "\"v\":[%lu,%lu,%lu,%d,%d,%d,%d,%d,%d,%.0f,%.0f,%.2f,%lu,%lu,%d]}\n",
-           pushStr, ridStr, g_flowFaultHardLockout ? 1 : 0,
-           (unsigned long)WATERING_DURATION, (unsigned long)WATERING_COOLDOWN, (unsigned long)MANUAL_WATERING_DURATION,
-           MOISTURE_THRESHOLD_PERCENT, WATER_WINDOW_START, WATER_WINDOW_END,
-           EMERGENCY_THRESHOLD_PERCENT, WET_ADC, DRY_ADC,
-           (double)SOIL_SMOOTHING_FACTOR, (double)FLOW_SMOOTHING_FACTOR, (double)FLOW_PULSE,
-           (unsigned long)FLOW_WINDOW, (unsigned long)PHONE_NOTIFICATION_DELAY,
-           g_flowCheckEnabled ? 1 : 0);
-  bleSendChunkedText(buf);
-}
-
-void bleSendTimeJson(uint32_t rid) {
-  if (!deviceConnected) return;
-  char buf[120];
-  if (!g_rtcReady) {
-    snprintf(buf, sizeof(buf), "{\"t\":\"t\",\"rid\":%lu,\"err\":\"no_rtc\"}\n", (unsigned long)rid);
-  } else {
-    DateTime now = rtc.now();
-    if (!rtcDateTimePlausible(now)) {
-      snprintf(buf, sizeof(buf), "{\"t\":\"t\",\"rid\":%lu,\"err\":\"invalid\"}\n", (unsigned long)rid);
-    } else {
-      snprintf(buf, sizeof(buf), "{\"t\":\"t\",\"rid\":%lu,\"rtc\":\"%04d-%02d-%02d %02d:%02d:%02d\"}\n",
-               (unsigned long)rid, now.year(), now.month(), now.day(), now.hour(), now.minute(), now.second());
-    }
-  }
-  bleSendChunkedText(buf);
-}
-
-void bleHandleJsonCmd(const String& rx) {
-  String s = rx.substring(2);
-  s.trim();
-  uint32_t rid = 0;
-  int lastSp = s.lastIndexOf(' ');
-  if (lastSp > 0) {
-    String tail = s.substring(lastSp + 1);
-    bool allDig = true;
-    for (unsigned i = 0; i < tail.length(); i++) {
-      char c = tail.charAt(i);
-      if (c < '0' || c > '9') {
-        allDig = false;
-        break;
-      }
-    }
-    if (tail.length() && allDig) {
-      rid = strtoul(tail.c_str(), nullptr, 10);
-      s = s.substring(0, lastSp);
-      s.trim();
-    }
-  }
-  if (s == "dash") bleSendDashJson(rid, false);
-  else if (s == "cfg") bleSendCfgJson(rid, false);
-  else if (s == "time") bleSendTimeJson(rid);
-  else if (s == "hist") {
-    char e[96];
-    snprintf(e, sizeof(e), "{\"t\":\"e\",\"rid\":%lu,\"err\":\"hist_disabled\"}\n", (unsigned long)rid);
-    bleSendChunkedText(e);
-  } else {
-    char e[96];
-    snprintf(e, sizeof(e), "{\"t\":\"e\",\"rid\":%lu,\"err\":\"bad_cmd\"}\n", (unsigned long)rid);
-    bleSendChunkedText(e);
-  }
-}
-
-// =============================================================================
-// ESP-NOW RX — updates latestSoilRaw + EMA; auto-starts watering when policy
-// says so (emergency bypasses window once per boot until BLE water on).
-// =============================================================================
-void onSoilDataReceived(const esp_now_recv_info_t *recv_info, const uint8_t *incomingData, int len) {
-  if (len < (int)sizeof(EspNowSoilPacket)) return;
-  const uint32_t msNow = millis();
-  const uint32_t prevSoilPktMs = g_lastSoilEspNowPacketMs;
-  g_lastSoilEspNowPacketMs = msNow;
-  const bool soilCadenceOkForAuto =
-      (prevSoilPktMs == 0) || ((msNow - prevSoilPktMs) <= SOIL_AUTO_MAX_PACKET_GAP_MS);
-
-  EspNowSoilPacket pkt;
-  memcpy(&pkt, incomingData, sizeof(pkt));
-  const int raw = (int)pkt.adc_raw;
-  g_soilEspNowEver = true;
-  latestSoilRaw = raw;
-  Serial.print("ESP-NOW rx raw: "); Serial.println(raw);
-
-  float ema = updateEMA((float)raw, avgSoil, firstSoil, SOIL_SMOOTHING_FACTOR);
-  portENTER_CRITICAL(&soilMux);
-  smoothSoil = ema;
-  portEXIT_CRITICAL(&soilMux);
-
-  if (watering) return;
-  if (kFlowHardLockoutEnabled && g_flowFaultHardLockout) return;
-
-  portENTER_CRITICAL(&soilMux);
-  float soilSnapshot = smoothSoil;
-  portEXIT_CRITICAL(&soilMux);
-
-  int soilPct = getSoilPercent(soilSnapshot);
-  bool cooldownClear = isCooldownClear();
-  const bool emergencyCooldownBypass = !emergencyCooldownBypassConsumed;
-  const bool mayStartEmergency = cooldownClear || emergencyCooldownBypass;
-
-  if (soilPct < EMERGENCY_THRESHOLD_PERCENT && mayStartEmergency) {
-    if (!cooldownClear) {
-      emergencyCooldownBypassConsumed = true;
-      Serial.println("EMERGENCY — soil critically dry (cooldown bypass, once until water on)");
-    } else {
-      Serial.println("EMERGENCY — soil critically dry, watering outside window");
-    }
-    if (soilCadenceOkForAuto) {
-      startWatering(WATERING_DURATION, RUN_EMERGENCY);
-    } else {
-      Serial.println("EMERGENCY start blocked: soil packet gap >2min");
-    }
-    return;
-  }
-
-  DateTime now = rtc.now();
-  int currentHour = 0;
-  bool inWindow = false;
-  if (g_rtcReady && rtcDateTimePlausible(now)) {
-    currentHour = now.hour();
-    inWindow = isInWaterWindow(currentHour);
-  }
-
-  if (soilPct < MOISTURE_THRESHOLD_PERCENT && inWindow && cooldownClear) {
-    if (soilCadenceOkForAuto) {
-      startWatering(WATERING_DURATION, RUN_AUTO);
-      Serial.println("Dry — auto watering triggered");
-    } else {
-      Serial.println("Auto watering blocked: soil packet gap >2min");
-    }
-    return;
-  }
-
-  if (!cooldownClear) {
-    uint32_t remaining = (WATERING_COOLDOWN - (millis() - lastWaterStop)) / 1000;
-    char buf[96];
-    if (soilPct < EMERGENCY_THRESHOLD_PERCENT) {
-      snprintf(buf, sizeof(buf), "EMERGENCY dry (%d%%) — cooldown active %lus remaining\n", soilPct, remaining);
-    } else if (soilPct < MOISTURE_THRESHOLD_PERCENT) {
-      snprintf(buf, sizeof(buf), "Dry (%d%%) — cooldown active %lus remaining\n", soilPct, remaining);
-    } else {
-      return;
-    }
-    Serial.print(buf);
-  } else if (soilPct < MOISTURE_THRESHOLD_PERCENT && !inWindow) {
-    char buf[80];
-    snprintf(buf, sizeof(buf), "Dry (%d%%) — outside window (%02d:00-%02d:00)\n",
-      soilPct, WATER_WINDOW_START, WATER_WINDOW_END);
-    Serial.print(buf);
-  }
-}
-
-// =============================================================================
-// Active pump supervision — max duration, then flow guard after prime window.
-// =============================================================================
-void handleWatering() {
-  if (!watering) return;
-
-  (void)getFlowRateLPM();
-
-  uint32_t elapsed = millis() - waterStart;
-  if (elapsed >= activeDuration) {
-    stopWatering(RUN_END_TIMER);
-    return;
-  }
-
-  if (!g_flowCheckEnabled) return;
-
-  if (elapsed < FLOW_PRIME_GRACE_MS) {
-    lowFlowSinceMs = 0;
-    return;
-  }
-
-  uint32_t pulseNow;
-  noInterrupts();
-  pulseNow = pulseCount;
-  interrupts();
-  if (pulseNow != pumpGuardPrevPulseCount) {
-    pumpGuardPrevPulseCount = pulseNow;
-    pumpGuardLastPulseMs = millis();
-  }
-  bool hasRecentPulseProgress = ((uint32_t)(millis() - pumpGuardLastPulseMs) <= (FLOW_WINDOW + 250UL));
-  bool hasFlow = (smoothFlow >= FLOW_MIN_LPM_WHILE_PUMPING);
-  if (hasFlow && hasRecentPulseProgress) {
-    lowFlowSinceMs = 0;
-    return;
-  }
-
-  if (lowFlowSinceMs == 0) lowFlowSinceMs = millis();
-  else if ((uint32_t)(millis() - lowFlowSinceMs) >= FLOW_LOW_SUSTAIN_MS) {
-    Serial.println("FLOW FAULT: pump ON but no valid flow/pulse progress — stopping");
-    bleSend("FLOW FAULT: pump ON but no flow/pulse progress — stopped\n");
-    logEvent(EVT_FLOW_FAULT);
-    stopWatering(RUN_END_FLOW_FAULT);
-  }
-}
-
-// Pump OFF safety: if pulses and flow persist, flag likely leak/backflow/wiring fault.
-void monitorUnexpectedFlowWhenPumpOff() {
-  if (watering) {
-    noInterrupts();
-    offFlowPrevPulseCount = pulseCount;
-    interrupts();
-    unexpectedFlowSinceMs = 0;
-    unexpectedFlowClearSinceMs = 0;
-    unexpectedFlowLatched = false;
-    return;
-  }
-
-  uint32_t pulseNow;
-  noInterrupts();
-  pulseNow = pulseCount;
-  interrupts();
-  uint32_t pulseDelta = (pulseNow >= offFlowPrevPulseCount) ? (pulseNow - offFlowPrevPulseCount)
-                                                             : (UINT32_MAX - offFlowPrevPulseCount + pulseNow + 1u);
-  offFlowPrevPulseCount = pulseNow;
-
-  const bool flowUnexpected = (pulseDelta > 0) && (smoothFlow >= FLOW_UNEXPECTED_MIN_LPM);
-  if (flowUnexpected) {
-    unexpectedFlowClearSinceMs = 0;
-    if (unexpectedFlowSinceMs == 0) unexpectedFlowSinceMs = millis();
-    else if (!unexpectedFlowLatched && (uint32_t)(millis() - unexpectedFlowSinceMs) >= FLOW_UNEXPECTED_SUSTAIN_MS) {
-      unexpectedFlowLatched = true;
-      Serial.println("UNEXPECTED FLOW: pump OFF but flow/pulse activity detected");
-      bleSend("UNEXPECTED FLOW: pump OFF but flow detected\n");
-      logEvent(EVT_UNEXPECTED_FLOW);
-    }
-    return;
-  }
-
-  unexpectedFlowSinceMs = 0;
-  if (unexpectedFlowLatched) {
-    if (unexpectedFlowClearSinceMs == 0) unexpectedFlowClearSinceMs = millis();
-    else if ((uint32_t)(millis() - unexpectedFlowClearSinceMs) >= FLOW_UNEXPECTED_CLEAR_MS) {
-      unexpectedFlowLatched = false;
-      unexpectedFlowClearSinceMs = 0;
-    }
-  }
-}
-
-// =============================================================================
-// BLE TX — notify phone with text lines (index.html parseLine consumes them).
-// Tiny yield after notify: pacing for the phone parser without blocking the BLE
-// controller for hundreds of ms (was delay(20) per line → link timeouts).
-// =============================================================================
-void bleSend(const char* msg) {
-  if (!deviceConnected) return;
-  pTxCharacteristic->setValue((uint8_t*)msg, strlen(msg));
-  pTxCharacteristic->notify();
-  yield();
-  delay(2);
-}
-
-void bleSendSoilReading() {
-  if (!deviceConnected) return;
-
-  if (watering) bleSend("Watering\n");
-
-  if (!g_soilEspNowEver) return;
-
-  portENTER_CRITICAL(&soilMux);
-  float soilSnapshot = smoothSoil;
-  portEXIT_CRITICAL(&soilMux);
-
-  char buf[40];
-  snprintf(buf, sizeof(buf), "Soil: %d%%\n", getSoilPercent(soilSnapshot));
-  bleSend(buf);
-
-  if (latestSoilRaw >= 0) {
-    char rawBuf[32];
-    snprintf(rawBuf, sizeof(rawBuf), "ADC RAW: %d\n", latestSoilRaw);
-    bleSend(rawBuf);
-  }
-}
-
-void bleSendFlowReading(float lpm) {
-  char buf[40];
-  snprintf(buf, sizeof(buf), "Flow: %.2f L/min\n", lpm);
-  bleSend(buf);
-}
-
-static void bleSendReadSettingVal(int n) {
-  if (!deviceConnected) return;
-  char b[80];
-  switch (n) {
-    case 0:  snprintf(b, sizeof(b), "V 0 %d\n", g_flowFaultHardLockout ? 1 : 0); break;
-    case 1:  snprintf(b, sizeof(b), "V 1 %lu\n", (unsigned long)WATERING_DURATION); break;
-    case 2:  snprintf(b, sizeof(b), "V 2 %lu\n", (unsigned long)WATERING_COOLDOWN); break;
-    case 3:  snprintf(b, sizeof(b), "V 3 %lu\n", (unsigned long)MANUAL_WATERING_DURATION); break;
-    case 4:  snprintf(b, sizeof(b), "V 4 %d\n", MOISTURE_THRESHOLD_PERCENT); break;
-    case 5:  snprintf(b, sizeof(b), "V 5 %02d:00\n", WATER_WINDOW_START); break;
-    case 6:  snprintf(b, sizeof(b), "V 6 %02d:00\n", WATER_WINDOW_END); break;
-    case 7:  snprintf(b, sizeof(b), "V 7 %d\n", EMERGENCY_THRESHOLD_PERCENT); break;
-    case 8:  snprintf(b, sizeof(b), "V 8 %d\n", WET_ADC); break;
-    case 9:  snprintf(b, sizeof(b), "V 9 %d\n", DRY_ADC); break;
-    case 10: snprintf(b, sizeof(b), "V 10 %.0f\n", (double)SOIL_SMOOTHING_FACTOR); break;
-    case 11: snprintf(b, sizeof(b), "V 11 %.0f\n", (double)FLOW_SMOOTHING_FACTOR); break;
-    case 12: snprintf(b, sizeof(b), "V 12 %.2f\n", (double)FLOW_PULSE); break;
-    case 13: snprintf(b, sizeof(b), "V 13 %lu\n", (unsigned long)FLOW_WINDOW); break;
-    case 14: snprintf(b, sizeof(b), "V 14 %lu\n", (unsigned long)PHONE_NOTIFICATION_DELAY); break;
-    case 15: snprintf(b, sizeof(b), "V 15 %d\n", g_flowCheckEnabled ? 1 : 0); break;
-    default: bleSend("ERR: read 0..15|rtc\n"); return;
-  }
-  bleSend(b);
-}
-
-void bleSendConfigs() {
-  if (!deviceConnected) return;
-  /* One line per notify (no H… chunking): index.html parseLineLegacy matches each line
-   * immediately; avoids H-stream interleave with telemetry on the phone. */
-  bleSend("=== CONFIG ===\n");
-  char buf[96];
-  snprintf(buf, sizeof(buf), "FLOW_LOCKOUT:             %d\n", g_flowFaultHardLockout ? 1 : 0); bleSend(buf);
-  snprintf(buf, sizeof(buf), " 1 WATERING_DURATION:         %lu\n", (unsigned long)WATERING_DURATION); bleSend(buf);
-  snprintf(buf, sizeof(buf), " 2 WATERING_COOLDOWN:         %lu\n", (unsigned long)WATERING_COOLDOWN); bleSend(buf);
-  snprintf(buf, sizeof(buf), " 3 MANUAL_WATERING_DURATION:  %lu\n", (unsigned long)MANUAL_WATERING_DURATION); bleSend(buf);
-  snprintf(buf, sizeof(buf), " 4 MOISTURE_THRESHOLD_PRCNT:  %d%%\n", MOISTURE_THRESHOLD_PERCENT); bleSend(buf);
-  snprintf(buf, sizeof(buf), " 5 WATER_WINDOW_START:        %02d:00\n", WATER_WINDOW_START); bleSend(buf);
-  snprintf(buf, sizeof(buf), " 6 WATER_WINDOW_END:          %02d:00\n", WATER_WINDOW_END); bleSend(buf);
-  snprintf(buf, sizeof(buf), " 7 EMERGENCY_THRESHOLD_PRCNT: %d%%\n", EMERGENCY_THRESHOLD_PERCENT); bleSend(buf);
-  snprintf(buf, sizeof(buf), " 8 WET_ADC:                   %d\n", WET_ADC); bleSend(buf);
-  snprintf(buf, sizeof(buf), " 9 DRY_ADC:                   %d\n", DRY_ADC); bleSend(buf);
-  snprintf(buf, sizeof(buf), "10 SOIL_SMOOTHING_FACTOR:     %.0f\n", SOIL_SMOOTHING_FACTOR); bleSend(buf);
-  snprintf(buf, sizeof(buf), "11 FLOW_SMOOTHING_FACTOR:     %.0f\n", FLOW_SMOOTHING_FACTOR); bleSend(buf);
-  snprintf(buf, sizeof(buf), "12 FLOW_PULSE:                %.2f\n", FLOW_PULSE); bleSend(buf);
-  snprintf(buf, sizeof(buf), "13 FLOW_WINDOW:               %lu\n", (unsigned long)FLOW_WINDOW); bleSend(buf);
-  snprintf(buf, sizeof(buf), "14 PHONE_NOTIFICATION_DELAY:  %lu\n", (unsigned long)PHONE_NOTIFICATION_DELAY); bleSend(buf);
-  snprintf(buf, sizeof(buf), "15 FLOW_CHECK_ENABLED:        %d\n", g_flowCheckEnabled ? 1 : 0); bleSend(buf);
-}
-
-// =============================================================================
-// BLE "set <n> <value>" — map index -> key name, validate, apply to RAM.
-// =============================================================================
-String resolveSettingKey(String key) {
-  if      (key == "1")  return "WATERING_DURATION";
-  else if (key == "2")  return "WATERING_COOLDOWN";
-  else if (key == "3")  return "MANUAL_WATERING_DURATION";
-  else if (key == "4")  return "MOISTURE_THRESHOLD_PERCENT";
-  else if (key == "5")  return "WATER_WINDOW_START";
-  else if (key == "6")  return "WATER_WINDOW_END";
-  else if (key == "7")  return "EMERGENCY_THRESHOLD_PERCENT";
-  else if (key == "8")  return "WET_ADC";
-  else if (key == "9")  return "DRY_ADC";
-  else if (key == "10") return "SOIL_SMOOTHING_FACTOR";
-  else if (key == "11") return "FLOW_SMOOTHING_FACTOR";
-  else if (key == "12") return "FLOW_PULSE";
-  else if (key == "13") return "FLOW_WINDOW";
-  else if (key == "14") return "PHONE_NOTIFICATION_DELAY";
-  else if (key == "15") return "FLOW_CHECK_ENABLED";
-  return key;
-}
-
-bool validateSetting(const String& key, float value, String& err) {
-  if (key == "WATER_WINDOW_START" || key == "WATER_WINDOW_END") {
-    if (value < 0 || value > 23) { err = "ERR: window hour must be 0..23\n"; return false; }
-  }
-  if (key == "MOISTURE_THRESHOLD_PERCENT" || key == "EMERGENCY_THRESHOLD_PERCENT") {
-    if (value < 0 || value > 100) { err = "ERR: moisture percent must be 0..100\n"; return false; }
-  }
-  if (key == "EMERGENCY_THRESHOLD_PERCENT" && value >= MOISTURE_THRESHOLD_PERCENT) {
-    err = "ERR: emergency threshold must be < moisture threshold\n";
-    return false;
-  }
-  if (key == "MOISTURE_THRESHOLD_PERCENT" && value <= EMERGENCY_THRESHOLD_PERCENT) {
-    err = "ERR: moisture threshold must be > emergency threshold\n";
-    return false;
-  }
-  if ((key == "WATERING_DURATION" || key == "WATERING_COOLDOWN" || key == "MANUAL_WATERING_DURATION" ||
-       key == "FLOW_WINDOW" || key == "PHONE_NOTIFICATION_DELAY") && value <= 0) {
-    err = "ERR: value must be > 0\n";
-    return false;
-  }
-  if (key == "FLOW_CHECK_ENABLED" && value != 0.0f && value != 1.0f) {
-    err = "ERR: FLOW_CHECK_ENABLED must be 0 or 1\n";
-    return false;
-  }
-  return true;
-}
-
-bool applySetting(const String& key, const String& valStr) {
-  if      (key == "WATERING_DURATION")           WATERING_DURATION           = (uint32_t)valStr.toInt();
-  else if (key == "WATERING_COOLDOWN")           WATERING_COOLDOWN           = (uint32_t)valStr.toInt();
-  else if (key == "MANUAL_WATERING_DURATION")    MANUAL_WATERING_DURATION    = (uint32_t)valStr.toInt();
-  else if (key == "MOISTURE_THRESHOLD_PERCENT")  MOISTURE_THRESHOLD_PERCENT  = valStr.toInt();
-  else if (key == "WATER_WINDOW_START")          WATER_WINDOW_START          = valStr.toInt();
-  else if (key == "WATER_WINDOW_END")            WATER_WINDOW_END            = valStr.toInt();
-  else if (key == "EMERGENCY_THRESHOLD_PERCENT") EMERGENCY_THRESHOLD_PERCENT = valStr.toInt();
-  else if (key == "WET_ADC")                     WET_ADC                     = valStr.toInt();
-  else if (key == "DRY_ADC")                     DRY_ADC                     = valStr.toInt();
-  else if (key == "SOIL_SMOOTHING_FACTOR")       SOIL_SMOOTHING_FACTOR       = valStr.toFloat();
-  else if (key == "FLOW_SMOOTHING_FACTOR")       FLOW_SMOOTHING_FACTOR       = valStr.toFloat();
-  else if (key == "FLOW_PULSE")                  FLOW_PULSE                  = valStr.toFloat();
-  else if (key == "FLOW_WINDOW")                 FLOW_WINDOW                 = (uint32_t)valStr.toInt();
-  else if (key == "PHONE_NOTIFICATION_DELAY")    PHONE_NOTIFICATION_DELAY    = (uint32_t)valStr.toInt();
-  else if (key == "FLOW_CHECK_ENABLED")          g_flowCheckEnabled          = (valStr.toInt() != 0);
-  else return false;
-  return true;
-}
-
-void bleHandleSet(String cmd) {
-  int sep = cmd.indexOf(' ');
-  if (sep < 0) { bleSend("ERR: set <#> <value>\n"); return; }
-
-  String key = resolveSettingKey(cmd.substring(0, sep));
-  String valStr = cmd.substring(sep + 1);
-  valStr.trim();
-
-  String err;
-  float testVal = valStr.toFloat();
-  if (!validateSetting(key, testVal, err)) {
-    bleSend(err.c_str());
-    logEvent(EVT_CFG_REJECT);
-    return;
-  }
-
-  if (!applySetting(key, valStr)) {
-    bleSend("ERR: unknown key\n");
-    return;
-  }
-
-  String confirm = "set " + key + " = " + valStr + " (temporary)\n";
-  bleSend(confirm.c_str());
-  Serial.print("Config updated: "); Serial.println(confirm);
-}
-
-// =============================================================================
-// BLE GATT server — connection lifecycle + RX command parser (water/config/RTC).
-// Assemble lines across writes so a fragmented "j cfg 1\n" never becomes lone "j".
-// g_bleRpcTxNest: while handling an RX line, suppress loop() dash telemetry so H…
-// chunk streams and multi-line text (config) are not interleaved on the notify char.
-// =============================================================================
-static uint8_t g_bleRpcTxNest = 0;
-
-struct BleRpcTxNestGuard {
-  BleRpcTxNestGuard() { ++g_bleRpcTxNest; }
-  ~BleRpcTxNestGuard() {
-    if (g_bleRpcTxNest) --g_bleRpcTxNest;
-  }
-};
-
-static String g_bleRxLineBuf;
-
-static void bleStripUtf8Bom(String& s) {
-  if (s.length() >= 3 &&
-      (uint8_t)s.charAt(0) == 0xEF && (uint8_t)s.charAt(1) == 0xBB && (uint8_t)s.charAt(2) == 0xBF) {
-    s.remove(0, 3);
-  }
-  s.trim();
-}
-
-static void bleProcessRxLine(String rxValue) {
-  BleRpcTxNestGuard bleRpcNest;
-  bleStripUtf8Bom(rxValue);
-  if (!rxValue.length()) return;
-
-  Serial.print("BLE RX: "); Serial.println(rxValue);
-
-  /* JSON RPC: leading "j" + space/tab (case-insensitive on "j"). */
-  if (rxValue.length() >= 2 &&
-      (rxValue.charAt(0) == 'j' || rxValue.charAt(0) == 'J') &&
-      (rxValue.charAt(1) == ' ' || rxValue.charAt(1) == '\t')) {
-    if (rxValue.charAt(0) == 'J') rxValue.setCharAt(0, 'j');
-    bleHandleJsonCmd(rxValue);
-    return;
-  }
-
-  String cmdNorm = rxValue;
-  cmdNorm.trim();
-  cmdNorm.toLowerCase();
-  if (cmdNorm == "water on") {
-    if (kFlowHardLockoutEnabled && g_flowFaultHardLockout) {
-      bleSend("FLOW LOCKOUT: reset required before watering can start\n");
-      return;
-    }
-    emergencyCooldownBypassConsumed = false;
-    startWatering(MANUAL_WATERING_DURATION, RUN_MANUAL);
-  }
-  else if (cmdNorm == "water off") stopWatering(RUN_END_MANUAL_OFF);
-  else if (rxValue == "stats") {
-    bleSend("OK\n");
-  }
-  else if (rxValue == "clear history") {
-    clearRunHistory();
-    bleSend("History cleared (NVS wfhist zeroed)\n");
-  }
-  else if (cmdNorm == "config") {
-    /* Legacy text blocks for index.html startPendingCfgGrab; j cfg is the JSON path. */
-    bleSendConfigs();
-  }
-  else if (cmdNorm == "time") {
-    if (!g_rtcReady) {
-      bleSend("ERR: RTC not available\n");
-    } else {
-      DateTime now = rtc.now();
-      if (!rtcDateTimePlausible(now)) {
-        bleSend("ERR: RTC read invalid — check I2C/battery, use set time\n");
-      } else {
-        char buf[48];
-        snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d:%02d\n",
-          now.year(), now.month(), now.day(), now.hour(), now.minute(), now.second());
-        bleSend(buf);
-      }
-    }
-  } else if (cmdNorm.startsWith("read ")) {
-    String tail = cmdNorm.substring(5);
-    tail.trim();
-    if (tail.length() == 0) {
-      bleSend("ERR: read <0..15>|rtc\n");
-    } else if (tail == "rtc") {
-      if (!g_rtcReady) {
-        bleSend("ERR: RTC not available\n");
-      } else {
-        DateTime now = rtc.now();
-        if (!rtcDateTimePlausible(now)) {
-          bleSend("ERR: RTC read invalid — check I2C/battery, use set time\n");
-        } else {
-          char buf[52];
-          snprintf(buf, sizeof(buf), "RTC %04d-%02d-%02d %02d:%02d:%02d\n",
-                   now.year(), now.month(), now.day(), now.hour(), now.minute(), now.second());
-          bleSend(buf);
-        }
-      }
-    } else {
-      char* endp = nullptr;
-      long idx = strtol(tail.c_str(), &endp, 10);
-      if (endp == tail.c_str() || (endp != nullptr && *endp != '\0') || idx < 0 || idx > 15) {
-        bleSend("ERR: read 0..15|rtc\n");
-      } else {
-        bleSendReadSettingVal((int)idx);
-      }
-    }
-  } else if (rxValue.startsWith("set time ")) {
-    if (!g_rtcReady) {
-      bleSend("ERR: RTC not available\n");
-      return;
-    }
-    int yr, mo, dy, hr, mn, sc;
-    int parsed = sscanf(rxValue.c_str(), "set time %d %d %d %d %d %d", &yr, &mo, &dy, &hr, &mn, &sc);
-    if (parsed == 6) { rtc.adjust(DateTime(yr, mo, dy, hr, mn, sc)); bleSend("RTC updated\n"); }
-    else bleSend("ERR: set time yyyy mm dd hh mm ss\n");
-  } else if (rxValue.startsWith("set ")) {
-    bleHandleSet(rxValue.substring(4));
-  } else if (rxValue == "save config") {
-    savePersistentDefaults();
-    bleSend("Saved to persistent storage\n");
-    Serial.println("Persistent defaults saved");
-  } else if (cmdNorm == "reset flow lockout") {
-    g_flowFaultConsecutive = 0;
-    g_flowFaultHardLockout = false;
-    persistFlowFaultLockoutState();
-    bleSend("Flow lockout cleared\n");
-    Serial.println("Flow lockout cleared");
-    /* Push compact dash so phone gets lko:0 immediately (telemetry may be seconds away). */
-    bleSendDashJson(0, true, true);
-  } else if (rxValue == "reset") {
-    resetToFactory();
-    bleSend("Factory defaults loaded (RAM only)\nSend save config to persist\n");
-    Serial.println("Reset to factory defaults");
-  } else {
-    bleSend("ERR: unknown command\n");
-    logEvent(EVT_BLE_UNK_CMD);
-  }
-}
-
-class ServerCallbacks : public BLEServerCallbacks {
-  void onConnect(BLEServer* s) override {
-    deviceConnected = true;
-    g_bleTelemetryHoldoffUntilMs = millis() + 3000;
-    Serial.println("BLE connected.");
-  }
-  void onDisconnect(BLEServer* s) override {
-    deviceConnected = false;
-    g_bleTelemetryHoldoffUntilMs = 0;
-    g_bleRxLineBuf = "";
-    g_bleRpcTxNest = 0;
-    s->getAdvertising()->start();
-    Serial.println("BLE disconnected. Re-advertising...");
-  }
-};
-
-class RxCallbacks : public BLECharacteristicCallbacks {
-  void onWrite(BLECharacteristic *pCharacteristic) override {
-    String piece = pCharacteristic->getValue().c_str();
-    bleStripUtf8Bom(piece);
-    if (!piece.length()) return;
-
-    g_bleRxLineBuf += piece;
-    const size_t kBleRxMax = 512;
-    if (g_bleRxLineBuf.length() > kBleRxMax) {
-      g_bleRxLineBuf = "";
-      bleSend("ERR: BLE rx line buffer overflow\n");
-      logEvent(EVT_BLE_UNK_CMD);
-      return;
-    }
-
-    for (;;) {
-      int nl = g_bleRxLineBuf.indexOf('\n');
-      if (nl < 0) break;
-      String line = g_bleRxLineBuf.substring(0, nl);
-      g_bleRxLineBuf.remove(0, nl + 1);
-      line.trim();
-      if (line.length()) bleProcessRxLine(line);
-    }
-  }
-};
-
-// =============================================================================
-// setup() — NVS, GPIO+ISR, RTC, ESP-NOW, BLE advertising as "WhiteFox Irrigation"
-// =============================================================================
-void setup() {
-  Serial.begin(115200);
-  delay(2000);
-  Serial.println("Booting...");
-
-  loadPersistentDefaults();
-  Serial.println("Config loaded");
-  loadRunHistoryFromPrefs();
-  Serial.println("Run history loaded");
-  /* smoothSoil left at 0 until first ESP-NOW sample; do not seed WET_ADC or BLE shows false 100%. */
-
-  pinMode(FLOW_PIN, INPUT_PULLUP);
-  pinMode(RELAY_PIN, OUTPUT);
-  pinMode(LED_BUILTIN, OUTPUT);
-  digitalWrite(RELAY_PIN, LOW);
-  digitalWrite(LED_BUILTIN, LOW);
-  attachInterrupt(digitalPinToInterrupt(FLOW_PIN), flowISR, RISING);
-
-  Wire.begin();
-  if (!rtc.begin()) {
-    Serial.println("ERROR: DS3231 not found - check wiring on GPIO 21/22");
-    logEvent(EVT_RTC_NO_DEV);
-  } else {
-    g_rtcReady = true;
-    Serial.println("RTC OK");
-    if (rtc.lostPower()) {
-      Serial.println("RTC lost power - set via BLE: set time yyyy mm dd hh mm ss");
-      logEvent(EVT_RTC_LOST_PWR);
-    }
-  }
-
-  WiFi.mode(WIFI_STA);
-  /* Modem sleep can make BLE advertising flaky when WiFi + ESP-NOW share the radio. */
-  WiFi.setSleep(false);
-
-  if (esp_now_init() != ESP_OK) {
-    Serial.println("ERROR: ESP-NOW init failed");
-    logEvent(EVT_ESP_NOW_FAIL);
-  } else {
-    Serial.println("ESP-NOW OK");
-    esp_now_register_recv_cb(onSoilDataReceived);
-  }
-
-  BLEDevice::init("WhiteFox Irrigation");
-  BLEDevice::setMTU(247);
-  pServer = BLEDevice::createServer();
-  pServer->setCallbacks(new ServerCallbacks());
-
-  BLEService *pService = pServer->createService(SERVICE_UUID);
-  pTxCharacteristic = pService->createCharacteristic(
-    CHARACTERISTIC_UUID_TX, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
-  pTxCharacteristic->addDescriptor(new BLE2902());
-
-  BLECharacteristic *pRxCharacteristic = pService->createCharacteristic(
-    CHARACTERISTIC_UUID_RX, BLECharacteristic::PROPERTY_WRITE);
-  pRxCharacteristic->setCallbacks(new RxCallbacks());
-
-  pService->start();
-  BLEDevice::getAdvertising()->addServiceUUID(SERVICE_UUID);
-  BLEDevice::startAdvertising();
-
-  Serial.println("BLE advertising as 'WhiteFox Irrigation'");
-  Serial.println("Boot complete");
-}
-
-// =============================================================================
-// loop() — periodic BLE telemetry (soil + flow), re-advertise on disconnect,
-// and pump supervision (timer + flow fault).
-// =============================================================================
-void loop() {
-  if (!deviceConnected && oldDeviceConnected) {
-    delay(500);
-    pServer->startAdvertising();
-    Serial.println("BLE advertising restarted");
-    oldDeviceConnected = deviceConnected;
-  }
-  if (deviceConnected && !oldDeviceConnected) oldDeviceConnected = deviceConnected;
-
-  /* If no phone is connected, nudge advertising occasionally (coexistence / stack quirks). */
-  static uint32_t lastBleAdvKickMs = 0;
-  if (!deviceConnected && pServer != nullptr && (millis() - lastBleAdvKickMs >= 20000)) {
-    lastBleAdvKickMs = millis();
-    pServer->startAdvertising();
-    Serial.println("BLE advertising periodic refresh");
-  }
-
-  static uint32_t lastReport = 0;
-  uint32_t reportIv = PHONE_NOTIFICATION_DELAY;
-  if (reportIv < 500u) reportIv = 500u;
-  const uint32_t nowMs = millis();
-  if (g_bleRpcTxNest == 0 && nowMs >= g_bleTelemetryHoldoffUntilMs && nowMs - lastReport >= reportIv) {
-    lastReport = nowMs;
-
-    (void)getFlowRateLPM();
-    if (deviceConnected) bleSendDashJson(0, true, true);
-  }
-
-  monitorUnexpectedFlowWhenPumpOff();
-  handleWatering();
-}
+html{height:100%;background:var(--bg)}
+body{height:100%;background:var(--bg);color:var(--tx);font-family:var(--f);font-size:12px;overflow:hidden}
+#app{display:flex;flex-direction:column;height:100%;max-width:430px;margin:0 auto;position:relative}
+#hdr{flex-shrink:0;padding:10px 14px 8px;background:var(--bg);border-bottom:1px solid var(--b)}
+.hd-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:2px}
+.hd-path{font-size:9px;letter-spacing:.15em;color:var(--dim)}
+.lk-badge{display:none;margin-left:8px;padding:1px 5px;border:1px solid var(--red);border-radius:3px;color:var(--red);font-size:9px;letter-spacing:.08em;font-weight:bold;vertical-align:middle}
+.lk-badge.on{display:inline-block}
+.hd-ble{font-size:9px;display:flex;align-items:center;gap:5px;cursor:pointer;letter-spacing:.08em}
+.ble-dot{width:7px;height:7px;border-radius:50%;background:var(--dim);transition:all .3s}
+.ble-dot.on{background:var(--green);box-shadow:0 0 7px var(--green)}
+.hd-bot{display:flex;justify-content:space-between;align-items:baseline}
+.hd-title{font-size:20px;font-weight:bold;color:var(--white);letter-spacing:-.02em}
+.hd-clk{font-size:11px;color:var(--dim)}
+#screens{flex:1;overflow:hidden;position:relative;min-height:0}
+.scr{position:absolute;inset:0;overflow-y:auto;padding:10px 10px 70px;display:none;scrollbar-width:none;-ms-overflow-style:none}
+.scr::-webkit-scrollbar{width:0;height:0;display:none}
+.scr.on{display:block}
+.scr.banner-pad{padding-top:52px}
+#tabs{flex-shrink:0;display:flex;background:var(--bg2);border-top:1px solid var(--b)}
+.tab{flex:1;padding:9px 0 11px;text-align:center;font-size:10px;letter-spacing:.12em;color:var(--dim);cursor:pointer;border-top:2px solid transparent;font-family:var(--f)}
+.tab.on{color:var(--green);border-top-color:var(--green)}
+#overlay{position:absolute;top:0;left:0;right:0;background:var(--bg3);border-bottom:1px solid var(--amber);display:flex;flex-direction:row;align-items:center;gap:10px;z-index:50;padding:8px 12px}
+#overlay.hide{display:none}
+.ov-left{flex:1;min-width:0}
+.ov-title{font-size:10px;font-weight:bold;color:var(--white);letter-spacing:.05em}
+.ov-sub{font-size:9px;color:var(--dim);line-height:1.4;margin-top:1px}
+.ov-btn{background:var(--green);color:#000;border:none;border-radius:3px;padding:7px 12px;font-family:var(--f);font-size:10px;font-weight:bold;letter-spacing:.08em;cursor:pointer;white-space:nowrap;flex-shrink:0}
+.ov-actions{display:flex;flex-direction:column;gap:7px;flex-shrink:0;align-self:center}
+#err-msg{font-size:9px;color:var(--red);margin-top:2px;min-height:0}
+.card{background:var(--bg2);border:1px solid var(--b);border-radius:5px;padding:11px;margin-bottom:9px}
+.ch{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px}
+.cl{font-size:9px;letter-spacing:.15em;color:var(--dim)}
+.cs{font-size:9px;display:flex;align-items:center;gap:4px;letter-spacing:.08em}
+.sd{width:6px;height:6px;border-radius:50%}
+.s-ok{background:var(--green);box-shadow:0 0 5px var(--green)}
+.s-id{background:var(--dim)}
+.s-wa{background:var(--amber);box-shadow:0 0 5px var(--amber)}
+.s-er{background:var(--red);box-shadow:0 0 5px var(--red)}
+.s-ru{background:var(--blue);box-shadow:0 0 5px var(--blue)}
+.bv{font-size:48px;font-weight:bold;color:var(--white);letter-spacing:-.03em;line-height:1}
+.bu{font-size:14px;color:var(--dim);vertical-align:super}
+.adc{font-size:9px;color:var(--dim);float:right;margin-top:3px}
+.tbar{position:relative;height:4px;background:var(--bg3);border-radius:2px;margin:8px 0 2px;overflow:visible}
+.tfill{height:100%;border-radius:2px;background:var(--green);transition:width .5s;max-width:100%}
+.tmarks{position:relative;height:14px}
+.tm{position:absolute;transform:translateX(-50%);font-size:8px}
+.tm-e{color:var(--red)}
+.tm-t{color:var(--amber)}
+.spk{height:44px;margin-top:6px}
+canvas{display:block;width:100%;height:100%}
+.fv{font-size:40px;font-weight:bold;color:var(--white);letter-spacing:-.03em;line-height:1}
+.fbar{height:3px;background:var(--bg3);border-radius:2px;margin-top:9px;overflow:hidden}
+.ffill{height:100%;background:var(--blue);transition:width .5s;border-radius:2px}
+.pl{display:flex;align-items:center;gap:8px;margin-bottom:9px}
+.pd{width:10px;height:10px;border-radius:50%;background:var(--dim)}
+.pd.run{background:var(--blue);box-shadow:0 0 8px var(--blue);animation:p 1.5s infinite}
+.pd.emg{background:var(--red);box-shadow:0 0 8px var(--red);animation:p .8s infinite}
+@keyframes p{0%,100%{opacity:1}50%{opacity:.3}}
+.plb{font-size:19px;font-weight:bold;color:var(--white);letter-spacing:.04em}
+.pm{display:grid;grid-template-columns:1fr 1fr;gap:3px 10px;margin-bottom:11px;font-size:10px}
+.pk{color:var(--dim)}
+.pv{color:var(--green)}
+.brow{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+.btn{padding:10px;border:none;border-radius:4px;font-family:var(--f);font-size:11px;font-weight:bold;letter-spacing:.07em;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px}
+.bon{background:var(--bg3);color:var(--dim);border:1px solid var(--b2)}
+.bon:active{opacity:.7}
+.boff{background:var(--bg3);color:var(--dim);border:1px solid var(--b2)}
+.boff:active{opacity:.7}
+.log{background:var(--bg);border:1px solid var(--b);border-radius:3px;padding:7px;font-size:10px;line-height:1.6;max-height:88px;overflow-y:auto;scrollbar-width:none;-ms-overflow-style:none}
+.log::-webkit-scrollbar{width:0;height:0;display:none}
+.le{color:var(--dim)}.le.hl{color:var(--green)}.le.er{color:var(--red)}
+.lt{color:#3a3a3a}
+.hcw{height:170px;background:var(--bg);border:1px solid var(--b);border-radius:4px;padding:6px;margin-bottom:9px}
+.hleg{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:9px}
+.li{display:flex;align-items:center;gap:4px;font-size:9px;color:var(--dim)}
+.ld{width:10px;height:3px;border-radius:1px}
+.srow{display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;margin-bottom:9px}
+.sc{background:var(--bg2);border:1px solid var(--b);border-radius:4px;padding:9px}
+.sl{font-size:9px;letter-spacing:.1em;color:var(--dim);margin-bottom:3px}
+.sv{font-size:19px;font-weight:bold;color:var(--white)}
+.su{font-size:9px;color:var(--dim)}
+.evl{background:var(--bg2);border:1px solid var(--b);border-radius:4px;overflow:hidden}
+.evl.esp-scroll5{max-height:176px;overflow-y:auto}
+.evr{padding:7px 11px;border-bottom:1px solid var(--b);font-size:10px;display:flex;justify-content:space-between}
+.evr:last-child{border-bottom:none}
+.evm{padding:11px;text-align:center;font-size:10px;color:var(--dim)}
+.rtcc{background:var(--bg2);border:1px solid var(--b);border-radius:5px;padding:11px;margin-bottom:9px}
+.rtcl{font-size:9px;letter-spacing:.15em;color:var(--dim);margin-bottom:5px}
+.rtct{font-size:20px;font-weight:bold;color:var(--white);margin-bottom:7px;letter-spacing:-.01em}
+.rtcbtn{flex:1;background:var(--green);color:#000;border:none;border-radius:3px;padding:7px 8px;font-family:var(--f);font-size:10px;font-weight:bold;letter-spacing:.06em;cursor:pointer}
+.rtcbtn:active{background:var(--green2)}
+.rtcbtn-dim{background:var(--bg3);color:var(--tx);border:1px solid var(--b2)}
+.rtcbtn-dim:active{background:var(--b)}
+.rtci{width:100%;background:var(--bg);border:1px solid var(--b2);border-radius:3px;padding:7px 8px;font-family:var(--f);font-size:10px;color:var(--tx)}
+.rtci:focus{outline:none;border-color:var(--green)}
+.cfgh{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px;padding:0 3px;min-width:0}
+.cfgl{font-size:9px;letter-spacing:.15em;color:var(--dim);min-width:0}
+.advtxt{font-family:var(--f)!important;font-size:10px!important;font-weight:700!important;color:var(--green)!important;background:transparent!important;border:none!important;cursor:pointer;letter-spacing:.04em;user-select:none;line-height:1;padding:0!important;margin:0!important;display:inline-block!important;visibility:visible!important;opacity:1!important;white-space:nowrap}
+.advtxt:active{opacity:.7!important}
+.advtxt:focus{outline:none}
+.cfglist{background:var(--bg2);border:1px solid var(--b);border-radius:5px;overflow:hidden;margin-bottom:9px}
+.cfgr{display:flex;align-items:center;padding:9px 11px;border-bottom:1px solid var(--b);cursor:pointer}
+.cfgr:last-child{border-bottom:none}
+.cfgr:active{background:var(--bg3)}
+.cfgr.dirty{border-left:2px solid var(--amber)}
+.cn{font-size:9px;color:var(--dim);width:18px;flex-shrink:0}
+.ci{flex:1}
+.cnm{font-size:11px;font-weight:500;color:var(--white)}
+.cd{font-size:9px;color:var(--dim);margin-top:1px}
+.cv{font-size:12px;font-weight:bold;color:var(--green);text-align:right;flex-shrink:0;padding-left:6px}
+.cv.dirty{color:var(--amber)}
+.advsec{display:none}.advsec.open{display:block}
+.savebar{background:var(--bg2);border:1px solid var(--b);border-radius:4px;padding:11px;text-align:center;font-size:10px;color:var(--dim);margin-bottom:7px;cursor:pointer;letter-spacing:.05em}
+.savebar.has{background:var(--amber);color:#000;font-weight:bold;border-color:var(--amber)}
+.lockbar{background:rgba(224,80,80,.08);border:1px solid rgba(224,80,80,.5);border-radius:4px;padding:9px;text-align:center;font-size:10px;color:var(--red);margin-bottom:7px;cursor:pointer;letter-spacing:.05em}
+.lockbar:active{background:rgba(224,80,80,.18)}
+.resetbar{background:var(--bg2);border:1px solid var(--b2);border-radius:4px;padding:9px;text-align:center;font-size:10px;color:var(--dim);margin-bottom:9px;cursor:pointer;letter-spacing:.05em}
+.resetbar:active{background:var(--bg3)}
+.hibtn{padding:6px 8px;font-size:9px;letter-spacing:.06em;border-radius:3px;border:1px solid var(--b2);background:var(--bg3);color:var(--tx);font-family:var(--f);cursor:pointer;white-space:nowrap}
+.hibtn:active{background:var(--b)}
+.cfgnote{font-size:9px;color:var(--dim);line-height:1.6;padding:0 3px}
+#modal{position:fixed;inset:0;background:rgba(0,0,0,.88);display:flex;align-items:flex-end;z-index:200}
+#modal.hide{display:none}
+.ms{background:var(--bg2);border-top:1px solid var(--b);border-radius:12px 12px 0 0;padding:18px 14px 30px;width:100%;max-width:430px;margin:0 auto}
+.mt{font-size:12px;font-weight:bold;color:var(--white);margin-bottom:3px;word-break:break-all}
+.md{font-size:10px;color:var(--dim);margin-bottom:10px;line-height:1.5}
+.munit{font-size:10px;color:var(--green);letter-spacing:.06em;margin-bottom:8px}
+.mi{width:100%;background:var(--bg);border:1px solid var(--b2);border-radius:4px;padding:10px 11px;font-family:var(--f);font-size:18px;color:var(--white);margin-bottom:11px}
+.mi:focus{outline:none;border-color:var(--green)}
+.mbtns{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+.mcanc{background:var(--bg3);border:1px solid var(--b2);border-radius:4px;padding:10px;font-family:var(--f);font-size:11px;color:var(--tx);cursor:pointer}
+.maply{background:var(--green);border:none;border-radius:4px;padding:10px;font-family:var(--f);font-size:11px;font-weight:bold;color:#000;cursor:pointer}
+/* --- End styles: .scr.* screens, .card blocks, history canvas, cfg rows, modal --- */
+</style>
+</head>
+<body>
+<!-- App shell: fixed header + tabbed screens + bottom nav; #overlay when BLE off -->
+<div id="app">
+  <div id="hdr">
+    <div class="hd-top">
+      <div class="hd-path">WHITE_FOX_CABIN / IRRIGATION <span style="color:#fff;font-size:11px;margin-left:8px;font-weight:bold">v1.2.7</span><span id="lk-badge" class="lk-badge">LOCKOUT</span></div>
+      <div class="hd-ble" onclick="toggleBle()"><div class="ble-dot" id="bdot"></div><span id="blbl">CONNECT</span></div>
+    </div>
+    <div class="hd-bot"><div class="hd-title" id="stitle">Dashboard</div><div class="hd-clk" id="clk">--:--:--</div></div>
+  </div>
+  <div id="screens">
+    <div id="overlay"><div class="ov-left"><div class="ov-title">NOT CONNECTED</div><div class="ov-sub">BLE disconnected — data offline</div><div id="err-msg"></div></div><div class="ov-actions"><button type="button" class="ov-btn" onclick="connectBle()">▶ CONNECT</button></div></div>
+    <!-- SCREEN: Dashboard — soil %, flow, pump row, sparklines, BLE log (dash/updateSparks) -->
+    <div class="scr on" id="scr-dash">
+      <div class="card">
+        <div class="ch"><div class="cl">SOIL MOISTURE</div><div class="cs" id="sstat"><div class="sd s-id"></div><span>--</span></div></div>
+        <div><span class="bv" id="sval">--</span><span class="bu">%</span><span class="adc" id="sadc">ADC RAW --</span></div>
+        <div class="tbar"><div class="tfill" id="sbar" style="width:0%"></div></div>
+        <div class="tmarks"><div class="tm tm-e" id="mke" style="left:20%">EMRG</div><div class="tm tm-t" id="mkt" style="left:50%">THRESHOLD</div></div>
+        <div class="spk"><canvas id="sspk"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="ch"><div class="cl">FLOW RATE</div><div class="cs" id="fstat"><div class="sd s-id"></div><span>IDLE</span></div></div>
+        <div><span class="fv" id="fval">0.00</span><span style="font-size:12px;color:var(--dim)"> L/min</span></div>
+        <div class="fbar"><div class="ffill" id="fbar" style="width:0%"></div></div>
+        <div class="spk"><canvas id="fspk"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="ch"><div class="cl">PUMP STATE</div><div class="cs" id="pshdr"><div class="sd s-id"></div><span id="pstxt">OFF</span></div></div>
+        <div class="pl"><div class="pd" id="pdot"></div><div class="plb" id="plbl">IDLE</div></div>
+        <div class="pm"><span class="pk">sensor time</span><span class="pv" id="prtc">--:--:--</span><span class="pk" id="pcool-lbl">cooldown</span><span class="pv" id="pcool">clear</span><span class="pk">water window</span><span class="pv" id="pwin">07:00-11:00</span><span class="pk">status</span><span class="pv" id="pnext">waiting</span></div>
+        <div class="brow"><button class="btn bon" onclick="manualWaterOn()">▶ WATER ON</button><button class="btn boff" onclick="manualWaterOff()">■ WATER OFF</button></div>
+      </div>
+      <div class="card"><div class="ch"><div class="cl">BLE LOG</div><div style="font-size:9px;color:var(--dim)">commands &amp; alerts</div></div><div class="log" id="blog"><div class="le"><span class="lt">--:--:-- </span>waiting...</div></div></div>
+    </div>
+    <!-- SCREEN: History — disabled in field build (no BLE); tab kept for layout -->
+    <div class="scr" id="scr-hist">
+      <div class="card"><div class="ch"><div class="cl">HISTORY</div></div><div style="font-size:10px;line-height:1.7;color:var(--dim)">Run log, export, and 24h charts are <b>disabled</b> in this build to keep BLE reliable. Use <b>Dashboard</b> for live soil, flow, and pump state and <b>Settings</b> for RTC and the 15 configuration values.</div></div>
+    </div>
+    <!-- SCREEN: Settings — RTC sync/display, 15 config rows, save/reset, SCHEMA sync w/ firmware -->
+    <div class="scr" id="scr-cfg">
+      <div class="rtcc">
+        <div class="rtcl">RTC TIME <span id="rtc-drift-warn" style="color:var(--amber);font-size:9px;margin-left:8px;display:none">⚠ DRIFTED &gt;10min FROM PHONE</span></div>
+        <div class="rtct" id="rtcdisp">---- -- -- --:--:--</div>
+        <div style="display:flex;gap:7px;margin-bottom:7px"><button class="rtcbtn" onclick="syncRtcNow()">⟳ SYNC SENSOR TO PHONE TIME</button><button class="rtcbtn rtcbtn-dim" onclick="pullRtcViaJson()">↺ REFRESH</button></div>
+        <input class="rtci" id="rtci" placeholder="manual: set time yyyy mm dd hh mm ss →" onkeydown="rtcKey(event)">
+      </div>
+      <div class="cfgh"><div class="cfgl">CONFIG · 15 VARS</div><button type="button" class="advtxt" id="advToggle" onclick="togAdv()" aria-expanded="false">▼ advanced</button></div>
+      <div class="cfglist" id="cml"></div>
+      <div class="advsec" id="advsec"><div class="cfglist" id="cal"></div></div>
+      <div class="savebar" id="savebar" onclick="saveCfg()">· NO CHANGES TO SAVE</div>
+      <div class="lockbar" onclick="resetFlowLockout()">✕ RESET FLOW LOCKOUT</div>
+      <div class="resetbar" onclick="doReset()">↺ FACTORY RESET</div>
+      <div class="cfgnote">Changes are RAM only until SAVE CONFIG writes to flash.<br>FLOW LOCKOUT RESET only clears the 5-fault hard lockout.<br>Factory reset restores defaults in RAM — send SAVE CONFIG to persist.</div>
+    </div>
+    <!-- SCREEN: Help — static copy; mirrors watering rules + NVS/event behavior in firmware -->
+    <div class="scr" id="scr-help">
+      <div class="card"><div class="ch"><div class="cl">HELP</div><div class="cl">WHITE FOX IRRIGATION</div></div><div style="font-size:10px;line-height:1.7;color:var(--tx)">Use this page instead of helper commands like <b>config</b>, <b>info</b>, or <b>101</b>.</div></div>
+      <div class="card"><div class="ch"><div class="cl">BLE TROUBLESHOOTING</div></div><div style="font-size:10px;line-height:1.7;color:var(--tx)">If connect shows nothing, the phone is not seeing the receiver advertiser. On USB Serial (115200) you should see <code>BLE advertising as 'WhiteFox Irrigation'</code> after <code>Boot complete</code>. If that line never appears, fix power/USB, wrong sketch/port, or a boot crash before BLE. If you upgraded <b>Arduino ESP32</b>, try <b>Tools → Bluetooth mode</b> (Bluedroid vs NimBLE). Latest receiver firmware (<code>ESP32_Now_Protocol_Recieve.ino</code>) disables WiFi modem sleep and periodically refreshes advertising when disconnected.</div></div>
+      <div class="card"><div class="ch"><div class="cl">WATERING RULES</div></div><div style="font-size:10px;line-height:1.7;color:var(--tx)">1) <b>Normal watering</b>: Soil below moisture threshold, inside time window, and cooldown clear.<br>2) <b>Emergency watering</b>: Soil below emergency threshold, ignores time window. Cooldown applies except <b>one bypass per boot</b> (first emergency start while cooldown is active). Sending <b>WATER ON</b> restores that bypass for the next time it is needed.<br>3) <b>Manual watering</b>: WATER ON clears cooldown and starts immediately; full cooldown applies from pump stop.<br>4) <b>Cooldown</b>: Any new watering run (auto, emergency, or manual) clears the prior lockout timer on the controller.<br>5) <b>Flow guard</b>: After a prime period, if smoothed flow stays below the firmware minimum while the pump is on, the run aborts (tune constants in <code>ESP32_Now_Protocol_Recieve.ino</code>).<br>6) <b>Dry bench test</b>: Settings → Advanced → <b>15 FLOW CHECK ENABLED</b> = OFF (0) disables that abort; timer stop still applies. Turn ON (1) for normal use; <b>SAVE CONFIG</b> to persist.</div></div>
+      <div class="card"><div class="ch"><div class="cl">TIME WINDOW</div></div><div style="font-size:10px;line-height:1.7;color:var(--tx)">Use 24-hour values.<br>Examples: 07 = 7am, 14 = 2pm.<br>For 11am to 2pm set:<br><b>05 WATER WINDOW START = 11</b><br><b>06 WATER WINDOW END = 14</b></div></div>
+      <div class="card"><div class="ch"><div class="cl">SETTINGS WORKFLOW</div></div><div style="font-size:10px;line-height:1.7;color:var(--tx)">Change values in Settings list -> values are temporary in RAM.<br>Tap <b>SAVE CONFIG</b> to persist through reboot/power loss.<br><b>FACTORY RESET</b> restores compile-time defaults to RAM; save to persist.</div></div>
+      <div class="card"><div class="ch"><div class="cl">KEY VALUES</div></div><div style="font-size:10px;line-height:1.7;color:var(--tx)"><b>04 MOISTURE THRESHOLD PERCENT</b>: normal dry trigger<br><b>07 EMERGENCY THRESHOLD PERCENT</b>: critical dry trigger (must be lower than #4)<br><b>01 WATERING DURATION</b>: auto run time<br><b>02 WATERING COOLDOWN</b>: lockout after run<br><b>03 MANUAL WATERING DURATION</b>: WATER ON run time</div></div>
+      <div class="card"><div class="ch"><div class="cl">RTC + LOG</div></div><div style="font-size:10px;line-height:1.7;color:var(--tx)">Settings screen auto-refreshes sensor time when opened.<br>Use <b>SYNC SENSOR TO PHONE TIME</b> to set RTC quickly.<br>BLE LOG shows <b>commands you send</b> and <b>alerts</b> (not live soil/flow numbers — those stay in the cards above).</div></div>
+      <div class="card"><div class="ch"><div class="cl">LONG-TERM HISTORY</div></div><div style="font-size:10px;line-height:1.7;color:var(--tx)">History / run log over BLE is <b>off</b> in this field build. Controller still logs runs in NVS for a future release.</div></div>
+    </div>
+  </div>
+  <div id="tabs"><div class="tab on" id="tab-dash" onclick="showScr('dash','Dashboard')">DASH</div><div class="tab" id="tab-hist" onclick="showScr('hist','History')">HISTORY</div><div class="tab" id="tab-cfg" onclick="showScr('cfg','Settings')">SETTINGS</div><div class="tab" id="tab-help" onclick="showScr('help','Help')">HELP</div></div>
+</div>
+<!-- Modal: numeric edit for one SCHEMA row; applyM sends "set N value" then marks dirty -->
+<div id="modal" class="hide"><div class="ms"><div class="mt" id="mtitle"></div><div class="md" id="mdesc"></div><div class="munit" id="munit"></div><input class="mi" id="minput" type="number" inputmode="decimal" onkeydown="mkey(event)"><div class="mbtns"><button class="mcanc" onclick="closeM()">CANCEL</button><button class="maply" onclick="applyM()">APPLY</button></div></div></div>
+<script>
+/* =============================================================================
+ * Field build: j cfg JSON + read fallback for settings; time / read rtc / j time for RTC; j dash for live UI. No history BLE.
+ * ============================================================================= */
+window.onerror=function(msg,src,line){const em=document.getElementById('err-msg');if(em)em.textContent=msg+' (line '+line+')';return false;};
+const S={conn:false,soilPct:null,soilAdc:null,flow:0,pump:false,mode:'IDLE',cool:false,coolSec:0,rtc:'',waterStartedAt:0,waterDuration:0,rtcReceivedAt:0,persistent:{},working:{},dirty:{},advOpen:false,configLoaded:false,savePending:false,flowLockout:false};
+const hist={soil:[],flow:[]};
+let currentScreen='dash';
+// --- Web Bluetooth GATT objects + modal edit index ---
+let dev=null,srv=null,txC=null,rxC=null,editN=null;
+// --- Stale detection + ring buffer caps for phone spark data ---
+const SOIL_SPARK_MAX=2880,FLOW_SPARK_MAX=86400;
+// --- SCHEMA: index n and keys must match bleSendConfigs / resolveSettingKey in firmware ---
+const SCHEMA=[{n:1,k:'WATERING_DURATION',d:'Auto cycle on-time',f:fmin,ms:true,adv:false},{n:2,k:'WATERING_COOLDOWN',d:'Wait after watering',f:fmin,ms:true,adv:false},{n:3,k:'MANUAL_WATERING_DURATION',d:'BLE manual on-time',f:fmin,ms:true,adv:false},{n:4,k:'MOISTURE_THRESHOLD_PERCENT',d:'Normal trigger %. Below=water',f:v=>v+'%',adv:false},{n:5,k:'WATER_WINDOW_START',d:'Allowed hours start (0-23)',f:v=>pad(v)+':00',adv:false},{n:6,k:'WATER_WINDOW_END',d:'Allowed hours end (0-23)',f:v=>pad(v)+':00',adv:false},{n:7,k:'EMERGENCY_THRESHOLD_PERCENT',d:'Water anytime below this %',f:v=>v+'%',adv:false},{n:8,k:'WET_ADC',d:'Sensor ADC saturated (calibrate)',f:String,adv:true},{n:9,k:'DRY_ADC',d:'Sensor ADC dry air (calibrate)',f:String,adv:true},{n:10,k:'SOIL_SMOOTHING_FACTOR',d:'Soil smoothing 1-100 (100=raw)',f:String,adv:true},{n:11,k:'FLOW_SMOOTHING_FACTOR',d:'Flow smoothing 1-100 (100=raw)',f:String,adv:true},{n:12,k:'FLOW_PULSE',d:'GR-201 pulses per L/min',f:String,adv:true},{n:13,k:'FLOW_WINDOW',d:'Pulse counting window ms',f:String,adv:true},{n:14,k:'PHONE_NOTIFICATION_DELAY',d:'BLE report rate ms',f:String,adv:true},{n:15,k:'FLOW_CHECK_ENABLED',d:'Low-flow pump guard (0=off dry test, 1=on)',f:v=>(+v===1?'ON':'OFF'),adv:true}];
+const CFG_ORDER=['WATERING_DURATION','WATERING_COOLDOWN','MANUAL_WATERING_DURATION','MOISTURE_THRESHOLD_PERCENT','WATER_WINDOW_START','WATER_WINDOW_END','EMERGENCY_THRESHOLD_PERCENT','WET_ADC','DRY_ADC','SOIL_SMOOTHING_FACTOR','FLOW_SMOOTHING_FACTOR','FLOW_PULSE','FLOW_WINDOW','PHONE_NOTIFICATION_DELAY','FLOW_CHECK_ENABLED'];
+let lastDash=null;
+function fmin(v){v=Number(v);const min=v/60000;if(min>=60)return(min/60).toFixed(2)+'h ('+min.toFixed(0)+'min)';if(min===Math.floor(min))return min+'min';return min.toFixed(1)+'min';}
+function msToMin(ms){return+(ms/60000).toFixed(4);}function minToMs(min){return Math.round(parseFloat(min)*60000);}
+function fmtCountdown(sec){sec=Math.max(0,Math.round(sec));if(sec>=3600)return Math.floor(sec/3600)+'h '+Math.floor((sec%3600)/60)+'m';if(sec>=60)return Math.floor(sec/60)+'m '+String(sec%60).padStart(2,'0')+'s';return sec+'s';}
+function pad(v){return String(v).padStart(2,'0');}
+// --- BLE UUIDs (lowercase ok in API); service name filter = firmware BLEDevice::init ---
+const SVC='00000001-0000-feed-0000-000000000000',RXU='00000002-0000-feed-0000-000000000000',TXU='00000003-0000-feed-0000-000000000000';
+// --- Optimistic pump state for UI when firmware sends "Watering" / stop lines ---
+function setPumpState({pump,mode,startNow=false,durationMs=null}){S.pump=!!pump;S.mode=mode;if(startNow)S.waterStartedAt=Date.now();if(durationMs!==null)S.waterDuration=durationMs;}
+// --- BLE connect: TX notify -> onNotify; RX write for commands (newline-terminated) ---
+async function attachBleFromDevice(chosen){dev=chosen;dev.addEventListener('gattserverdisconnected',onDC);srv=await dev.gatt.connect();try{if(typeof srv.requestMTU==='function')await srv.requestMTU(247);}catch(_){}const svc=await srv.getPrimaryService(SVC);txC=await svc.getCharacteristic(TXU);rxC=await svc.getCharacteristic(RXU);await txC.startNotifications();txC.addEventListener('characteristicvaluechanged',onNotify);jsonChunkRx=null;buf='';setConn(true);document.getElementById('overlay').classList.add('hide');document.getElementById('err-msg').textContent='';log('BLE connected.',true);(async()=>{try{await new Promise(r=>setTimeout(r,380));await pullCfgFromEsp(true);await new Promise(r=>setTimeout(r,120));await pullRtcViaJson();await new Promise(r=>setTimeout(r,120));try{applyDashFromJson(await bleJ('dash',45000));}catch(e2){log('dash '+e2.message,false,true);}scheduleUiFlush({sparks:true});}catch(e){log('post-connect '+e.message,false,true);}})();}
+function connectBleErr(em,e){const raw=e&&(e.message||String(e))||'Connection failed',low=raw.toLowerCase();let ui=raw;if(low.includes('no compatible')||e.name==='NotFoundError')ui='No compatible device found. Check ESP32 power + Chrome + BT + Location.';else if(low.includes('cancel')||low.includes('chooser'))ui='Picker closed — pick WhiteFox Irrigation from the list.';else if(low.includes('gatt')||low.includes('service'))ui='Wrong device selected. Choose WhiteFox Irrigation.';em.textContent=ui;log('Error: '+raw,false,true);}
+async function connectBle(){const em=document.getElementById('err-msg');em.textContent='Scanning…';try{const chosen=await navigator.bluetooth.requestDevice({filters:[{name:'WhiteFox Irrigation'},{namePrefix:'WhiteFox'},{services:[SVC]}],optionalServices:[SVC,RXU,TXU]});await attachBleFromDevice(chosen);}catch(e){connectBleErr(em,e);}}
+async function toggleBle(){if(S.conn){if(dev&&dev.gatt.connected)dev.gatt.disconnect();}else connectBle();}
+function onDC(){if(pendingRtcGrab){clearTimeout(pendingRtcGrab.tm);try{pendingRtcGrab.rej(new Error('disconnect'));}catch(_){}pendingRtcGrab=null;}if(pendingReadVal){clearTimeout(pendingReadVal.tm);try{pendingReadVal.rej(new Error('disconnect'));}catch(_){}pendingReadVal=null;}if(pendingRtcRead){clearTimeout(pendingRtcRead.tm);try{pendingRtcRead.rej(new Error('disconnect'));}catch(_){}pendingRtcRead=null;}jsonChunkRx=null;buf='';setConn(false);log('Disconnected',false,true);cmdQueue.length=0;cmdInFlight=false;document.getElementById('overlay').classList.remove('hide');document.querySelectorAll('.scr').forEach(s=>s.classList.add('banner-pad'));setPumpState({pump:false,mode:'UNKNOWN',durationMs:0});S.flow=0;dash();}
+function setConn(v){S.conn=v;document.getElementById('bdot').className='ble-dot'+(v?' on':'');document.getElementById('blbl').textContent=v?'BLE LINK':'CONNECT';if(v){S.configLoaded=false;S.savePending=false;S.dirty={};document.getElementById('overlay').classList.add('hide');document.querySelectorAll('.scr').forEach(s=>s.classList.remove('banner-pad'));}else{S.configLoaded=false;S.savePending=false;}renderCfg();}
+// --- Outbound command queue: avoids overlapping GATT writes (gap helps Android) ---
+const BLE_CMD_GAP_MS=155,cmdQueue=[];let cmdInFlight=false;
+function isQuietJsonPollCmd(cmd){const t=cmd.trim();if(!t.startsWith('j '))return false;const parts=t.slice(2).trim().split(/\s+/),op=parts[0]||'';return op==='dash'||op==='cfg'||op==='time';}
+async function processCmdQueue(){if(cmdInFlight||!cmdQueue.length||!rxC)return;cmdInFlight=true;try{await new Promise(r=>setTimeout(r,BLE_CMD_GAP_MS));const cmd=cmdQueue.shift();await rxC.writeValue(new TextEncoder().encode(cmd+'\n'));if(!isQuietJsonPollCmd(cmd))log('→ '+cmd);}catch(e){log('Send err: '+e.message,false,true);}finally{cmdInFlight=false;if(cmdQueue.length)setTimeout(processCmdQueue,BLE_CMD_GAP_MS);}}
+async function sendCmd(cmd){if(!rxC){log('Not connected',false,true);return;}if(cmdQueue.length&&cmdQueue[cmdQueue.length-1]===cmd)return;cmdQueue.push(cmd);processCmdQueue();}
+let configSyncTimer=null;
+let rpcId=1;const rpcWait={};
+function bleJ(op,timeout=16000){const id=rpcId++;return new Promise((res,rej)=>{const tm=setTimeout(()=>{delete rpcWait[id];rej(new Error('timeout: '+op));},timeout);rpcWait[id]=(o)=>{clearTimeout(tm);delete rpcWait[id];if(o&&o.t==='e')rej(new Error(o.err||'ESP error'));else res(o);};sendCmd('j '+op+' '+id);});}
+let pendingRtcGrab=null,pendingReadVal=null,pendingRtcRead=null;
+const _bleCfgRtcQueue=(()=>{let c=Promise.resolve();return{enqueue(fn){c=c.then(()=>fn()).catch(()=>{});return c;}}})();
+const READ_ROW_MS=10000;
+function parseLegacyCfgScalar(n,raw){if(raw==null||raw==='')return 0;const s0=String(raw).trim().replace(/%$/,'');if(n===5||n===6){const p=s0.split(':');return parseInt(p[0]||'0',10)||0;}const x=parseFloat(String(s0).replace(',','.'));if(!Number.isFinite(x))return 0;if(n===4||n===7||n===8||n===9||n===15)return Math.round(x);return x;}
+function clearAllBlePullPendings(){if(pendingRtcGrab){clearTimeout(pendingRtcGrab.tm);try{pendingRtcGrab.rej(new Error('superseded'));}catch(_){}pendingRtcGrab=null;}if(pendingReadVal){clearTimeout(pendingReadVal.tm);try{pendingReadVal.rej(new Error('superseded'));}catch(_){}pendingReadVal=null;}if(pendingRtcRead){clearTimeout(pendingRtcRead.tm);try{pendingRtcRead.rej(new Error('superseded'));}catch(_){}pendingRtcRead=null;}}
+function startPendingRtcGrab(timeoutMs){return new Promise((res,rej)=>{clearAllBlePullPendings();jsonChunkRx=null;const tm=setTimeout(()=>{const g=pendingRtcGrab;if(!g)return;pendingRtcGrab=null;g.rej(new Error('time cmd timeout'));},timeoutMs);pendingRtcGrab={res,rej,tm};sendCmd('time');});}
+function startReadVal(idx){return new Promise((res,rej)=>{clearAllBlePullPendings();jsonChunkRx=null;const tm=setTimeout(()=>{const g=pendingReadVal;if(!g||g.idx!==idx)return;pendingReadVal=null;g.rej(new Error('read '+idx+' timeout'));},READ_ROW_MS);pendingReadVal={res,rej,tm,idx};sendCmd('read '+idx);});}
+function startReadRtc(){return new Promise((res,rej)=>{clearAllBlePullPendings();jsonChunkRx=null;const tm=setTimeout(()=>{const g=pendingRtcRead;if(!g)return;pendingRtcRead=null;g.rej(new Error('rtc read timeout'));},READ_ROW_MS);pendingRtcRead={res,rej,tm};sendCmd('read rtc');});}
+async function pullCfgFromEsp(force){return _bleCfgRtcQueue.enqueue(async()=>{if(!S.conn||!rxC)return;if(force){S.configLoaded=false;S.working={};S.persistent={};S.dirty={};renderCfg();}jsonChunkRx=null;const tryReads=async()=>{const v0=await startReadVal(0);S.flowLockout=v0==='1'||v0==='true';for(let i=1;i<=15;i++){const raw=await startReadVal(i);const k=CFG_ORDER[i-1];S.working[k]=parseLegacyCfgScalar(i,raw);S.persistent[k]=S.working[k];}S.configLoaded=true;renderCfg();log('Config loaded (read)',true);};try{const o=await bleJ('cfg',45000);if(!o||!Array.isArray(o.v)||o.v.length<15)throw new Error('bad cfg JSON');applyCfgFromJson(o);renderCfg();log('Config loaded (JSON)',true);}catch(e1){if(!S.conn)return;try{await tryReads();}catch(e2){if(!S.conn)return;log('cfg pull '+e1.message+' / '+e2.message,false,true);S.configLoaded=false;renderCfg();}}});}
+async function pullRtcViaJson(){return _bleCfgRtcQueue.enqueue(async()=>{if(!S.conn){log('Not connected',false,true);return;}jsonChunkRx=null;try{const rtc=await startPendingRtcGrab(22000);applyTimeFromJson({rtc});log('RTC ok (time)',true);}catch(e1){if(!S.conn)return;try{applyTimeFromJson({rtc:await startReadRtc()});log('RTC ok (read rtc)',true);}catch(e2){if(!S.conn)return;try{applyTimeFromJson(await bleJ('time',28000));log('RTC ok (JSON)',true);}catch(e3){log('RTC pull '+e1.message+' / '+e2.message+' / '+e3.message,false,true);}}}});}
+function applyCfgFromJson(o){if(!o||!Array.isArray(o.v)||o.v.length<15)return;S.flowLockout=!!o.lko;CFG_ORDER.forEach((k,i)=>{S.working[k]=o.v[i];S.persistent[k]=o.v[i];});S.configLoaded=true;if(configSyncTimer){clearTimeout(configSyncTimer);configSyncTimer=null;}}
+function applyTimeFromJson(t){if(!t||t.err){if(t&&t.err)log('RTC '+t.err,false,true);return;}if(!t.rtc)return;S.rtc=t.rtc;S.rtcReceivedAt=Date.now();document.getElementById('rtcdisp').textContent=t.rtc;const rtcMs=new Date(t.rtc.replace(' ','T')).getTime();const driftMin=Math.abs(Date.now()-rtcMs)/60000;const warn=document.getElementById('rtc-drift-warn');if(warn)warn.style.display=driftMin>10?'inline':'none';}
+function applyDashFromJson(o){const d=Object.assign({},lastDash||{},o);lastDash=d;S.soilPct=d.s>=0?d.s:null;S.soilAdc=d.a>=0?d.a:null;S.flow=d.f;S.flowLockout=!!d.lko;S.pump=!!d.pv;if(d.md==='EMG')S.mode='EMERGENCY';else if(d.md==='RUN')S.mode='RUNNING';else S.mode='IDLE';S.cool=!!d.cd;S.coolSec=d.cs|0;S.waterDuration=d.wm||0;if(d.rtc){S.rtc=d.rtc;S.rtcReceivedAt=Date.now();}if(d.wm&&S.pump&&d.rw!=null)S.waterStartedAt=Date.now()-((d.wm/1000)-(d.rw||0))*1000;else if(!S.pump)S.waterStartedAt=0;if(d.push&&d.s>=0){hist.soil.push({t:Date.now(),v:d.s});if(hist.soil.length>SOIL_SPARK_MAX)hist.soil.shift();}if(d.push){hist.flow.push({t:Date.now(),v:d.f});if(hist.flow.length>FLOW_SPARK_MAX)hist.flow.shift();}}
+function handleJsonMessage(o){if(o==null)return;const rk=o.rid!=null?Number(o.rid):NaN;if(Number.isFinite(rk)&&rpcWait[rk]!==undefined){rpcWait[rk](o);return;}if(o.t==='e'){if(o.err==='hist_disabled')return;log(JSON.stringify(o),false,true);return;}if(o.t==='d'){applyDashFromJson(o);scheduleUiFlush({sparks:true});return;}if(o.t==='c'){applyCfgFromJson(o);renderCfg();scheduleUiFlush();return;}if(o.t==='h')return;if(o.t==='t'){applyTimeFromJson(o);return;}}
+let jsonChunkRx=null;
+function absorbHChunk(line){const m=line.match(/^H(\d+)\/(\d+)\|(.*)$/);if(!m)return false;const i=+m[1],tot=+m[2],body=m[3]||'';if(i===0)jsonChunkRx={tot,s:body,next:1};else{if(!jsonChunkRx||jsonChunkRx.tot!==tot||i!==jsonChunkRx.next){jsonChunkRx=null;return true;}jsonChunkRx.s+=body;jsonChunkRx.next++;}if(i===tot-1){const assembled=jsonChunkRx.s;jsonChunkRx=null;const ts=assembled.trimStart();if(ts.startsWith('{')){try{handleJsonMessage(JSON.parse(assembled));}catch(e){log('JSON '+e.message,false,true);}}else{for(const raw of assembled.split(/\r?\n/)){const ln=raw.trim();if(ln)parseLineLegacy(ln);}}}return true;}
+function dispatchBleLine(line){const s=line.trim();if(!s)return;if(s[0]==='H'){absorbHChunk(s);return;}if(s[0]==='{'){jsonChunkRx=null;try{handleJsonMessage(JSON.parse(s));}catch(e){log('Bad JSON line',false,true);}return;}parseLineLegacy(s);}
+// --- UI flush: coalesce parseLine-driven DOM work to one rAF (BLE bursts e.g. stats) ---
+const _uiFlush={raf:0,sparks:false};
+function scheduleUiFlush(opts){if(opts&&opts.sparks)_uiFlush.sparks=true;if(_uiFlush.raf)return;_uiFlush.raf=requestAnimationFrame(runUiFlush);}
+function runUiFlush(){_uiFlush.raf=0;dash();const n=Date.now();if(_uiFlush.sparks){if(!dash._lastSparkMs||n-dash._lastSparkMs>=250){dash._lastSparkMs=n;drawSparks();}_uiFlush.sparks=false;}}
+// --- Notify: JSON lines, H… chunks, or legacy text acks ---
+let buf='';function onNotify(e){buf+=new TextDecoder().decode(e.target.value);const lines=buf.split('\n');buf=lines.pop()||'';lines.forEach(dispatchBleLine);}
+function handleConfigLine(line){if(line==='Saved to persistent storage'){Object.assign(S.persistent,S.dirty);S.dirty={};S.savePending=false;renderCfg();log(line,true);pullCfgFromEsp(false).catch(()=>{});scheduleUiFlush({sparks:true});return true;}if(line==='Flow lockout cleared'){S.flowLockout=false;if(lastDash&&typeof lastDash==='object'){lastDash=Object.assign({},lastDash,{lko:0});}log(line,true);scheduleUiFlush({sparks:true});return true;}if(line==='Factory defaults loaded (RAM only)'){S.savePending=false;log(line,true);pullCfgFromEsp(true).catch(()=>{});return true;}if(line.startsWith('FLOW LOCKOUT:')){S.flowLockout=true;log(line,false,true);scheduleUiFlush({sparks:true});return true;}return false;}
+function parseLineLegacy(line){if(handleConfigLine(line))return;if(pendingRtcGrab){const g=pendingRtcGrab;if(/\bERR:/i.test(line)){pendingRtcGrab=null;clearTimeout(g.tm);g.rej(new Error(line.trim()));return;}const mt=line.match(/(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})/);if(mt){pendingRtcGrab=null;clearTimeout(g.tm);g.res(mt[1]);return;}}if(pendingRtcRead){const g=pendingRtcRead;if(/\bERR:/i.test(line)){pendingRtcRead=null;clearTimeout(g.tm);g.rej(new Error(line.trim()));return;}const mr=line.match(/^RTC (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})/);if(mr){pendingRtcRead=null;clearTimeout(g.tm);g.res(mr[1]);return;}}if(pendingReadVal){const g=pendingReadVal;if(/\bERR:/i.test(line)){pendingReadVal=null;clearTimeout(g.tm);g.rej(new Error(line.trim()));return;}const mv=line.match(/^V (\d+)\s+(.+)$/);if(mv&&+mv[1]===g.idx){pendingReadVal=null;clearTimeout(g.tm);g.res(mv[2].trim());return;}}if(/^(EMERGENCY|Dry)[:(]/.test(line)||/^Dry \(\d+%\)/.test(line))return;if(line.startsWith('Soil:')||line.startsWith('Flow:')||line.startsWith('ADC RAW:'))return;const hl=line.includes('connect')||line.includes('saved')||line.includes('updated')||line.includes('='),er=line.includes('ERROR')||line.includes('ERR:');log(line,hl,er);}
+// --- dash: DOM from S + lastDash (ESP-computed labels when connected) ---
+function dash(){const d=lastDash,soil=S.soilPct,thr=d&&d.thr!=null?d.thr:(S.working.MOISTURE_THRESHOLD_PERCENT||50),emg=d&&d.emg!=null?d.emg:(S.working.EMERGENCY_THRESHOLD_PERCENT||20),ws=d&&d.ws!=null?d.ws:(S.working.WATER_WINDOW_START||7),we=d&&d.we!=null?d.we:(S.working.WATER_WINDOW_END||11);const lkb=document.getElementById('lk-badge');if(lkb)lkb.className='lk-badge'+(S.conn&&S.flowLockout?' on':'');if(soil!==null){document.getElementById('sval').textContent=soil;document.getElementById('sbar').style.width=Math.min(soil,100)+'%';const ss=document.getElementById('sstat');if(d&&d.sl){if(d.sl==='EMG')ss.innerHTML=dot('er')+' EMERGENCY';else if(d.sl==='DRY')ss.innerHTML=dot('wa')+' DRY';else if(d.sl==='OK')ss.innerHTML=dot('ok')+' OK';else ss.innerHTML=dot('id')+' NO DATA';}else{if(soil<emg)ss.innerHTML=dot('er')+' EMERGENCY';else if(soil<thr)ss.innerHTML=dot('wa')+' DRY';else ss.innerHTML=dot('ok')+' OK';}}else{document.getElementById('sval').textContent='--';document.getElementById('sbar').style.width='0%';document.getElementById('sstat').innerHTML=dot('id')+' NO DATA';}document.getElementById('sadc').textContent='ADC RAW '+(S.soilAdc!==null?S.soilAdc:'--');document.getElementById('mke').style.left=emg+'%';document.getElementById('mkt').style.left=thr+'%';document.getElementById('fval').textContent=S.flow.toFixed(2);document.getElementById('fbar').style.width=Math.min(S.flow*15,100)+'%';const fl=d&&d.fl!=null?!!d.fl:S.flow>0.1;document.getElementById('fstat').innerHTML=dot(fl?'ru':'id')+(fl?' FLOWING':' IDLE');const pd=document.getElementById('pdot');if(!S.conn){pd.className='pd';document.getElementById('plbl').textContent='UNKNOWN';document.getElementById('pstxt').textContent='UNKNOWN';document.getElementById('pshdr').querySelector('.sd').className='sd s-id';}else if(S.flowLockout){pd.className='pd emg';document.getElementById('plbl').textContent='LOCKOUT';document.getElementById('pstxt').textContent='OFF';document.getElementById('pshdr').querySelector('.sd').className='sd s-er';}else{pd.className='pd'+(S.mode==='EMERGENCY'?' emg':S.pump?' run':'');document.getElementById('plbl').textContent=S.mode;document.getElementById('pstxt').textContent=S.pump?'ON':'OFF';document.getElementById('pshdr').querySelector('.sd').className='sd '+(S.mode==='EMERGENCY'?'s-er':S.pump?'s-ru':'s-id');}const now=new Date();document.getElementById('prtc').textContent=now.toTimeString().slice(0,8);const inWin=d&&typeof d.iw==='number'?!!d.iw:(now.getHours()>=ws&&now.getHours()<we);document.getElementById('pwin').textContent=pad(ws)+':00 - '+pad(we)+':00'+(inWin?' (open)':' (closed)');const _durW=(S.waterDuration&&S.waterDuration>0)?S.waterDuration:60000,_elW=S.waterStartedAt>0?Math.floor((Date.now()-S.waterStartedAt)/1000):0,_remW=S.pump&&(d&&d.rw!=null)?+d.rw:Math.max(0,Math.floor(_durW/1000)-_elW);document.getElementById('pcool-lbl').textContent=S.pump?'watering':'cooldown';document.getElementById('pcool').textContent=S.pump?fmtCountdown(_remW):(S.cool?(S.coolSec>0?fmtCountdown(S.coolSec):'active'):'clear');let nx='waiting for sensor';if(!S.conn)nx='status unknown (not connected)';else if(d&&d.nx)nx=d.nx;else if(S.flowLockout)nx='HARD LOCKOUT — open Settings, tap RESET FLOW LOCKOUT (reflash receiver if command does nothing)';else if(soil!==null||(d&&typeof d.s==='number'&&d.s>=0)){if(d&&d.sl==='EMG')nx='soil emergency band';else if(d&&d.sl==='DRY')nx='soil below threshold';else if(d&&d.sl==='OK')nx='soil OK — monitoring';else nx='ESP-NOW soil link active';}document.getElementById('pnext').textContent=nx;}
+function dot(c){return `<div class="sd s-${c}"></div>`;}
+// --- Dashboard mini charts (last ~80 points) ---
+function drawSparks(){sparkline('sspk',hist.soil,'#00d4a0',0,100);sparkline('fspk',hist.flow,'#4488dd',0,8);}
+function sparkline(id,data,col,lo,hi){const c=document.getElementById(id);if(!c)return;const dpr=window.devicePixelRatio||1,w=c.offsetWidth,h=c.offsetHeight;if(!w||!h)return;c.width=w*dpr;c.height=h*dpr;const ctx=c.getContext('2d');ctx.scale(dpr,dpr);const pts=data.slice(-80);if(pts.length<2)return;ctx.clearRect(0,0,w,h);ctx.beginPath();pts.forEach((p,i)=>{const x=(i/(pts.length-1))*w,y=h-((p.v-lo)/(hi-lo))*h;i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);});ctx.strokeStyle=col;ctx.lineWidth=1.5;ctx.stroke();const g=ctx.createLinearGradient(0,0,0,h);g.addColorStop(0,col+'44');g.addColorStop(1,col+'00');ctx.lineTo(w,h);ctx.lineTo(0,h);ctx.closePath();ctx.fillStyle=g;ctx.fill();}
+// --- Settings lists + save bar (dirty = pending BLE apply, unsaved vs flash) ---
+function syncAdvToggleUI(){const sec=document.getElementById('advsec'),btn=document.getElementById('advToggle');if(!sec||!btn)return;sec.className='advsec'+(S.advOpen?' open':'');btn.setAttribute('aria-expanded',S.advOpen?'true':'false');btn.textContent=S.advOpen?'▲ advanced':'▼ advanced';}
+function renderCfg(){renderList('cml',SCHEMA.filter(s=>!s.adv));renderList('cal',SCHEMA.filter(s=>s.adv));syncAdvToggleUI();const hd=Object.keys(S.dirty).length>0,sb=document.getElementById('savebar');if(!S.configLoaded)sb.textContent='· WAITING FOR ESP32 CONFIG';else if(S.savePending)sb.textContent='· SAVING TO ESP32...';else sb.textContent=hd?'▲ SAVE CONFIG — unsaved changes':'· NO CHANGES TO SAVE';sb.className='savebar'+(hd&&!S.savePending&&S.configLoaded?' has':'');}
+function renderList(id,sch){document.getElementById(id).innerHTML=sch.map(s=>{const working=S.working[s.k],persistent=S.persistent[s.k],hasWorking=working!==undefined&&working!==null,hasPersistent=persistent!==undefined&&persistent!==null,isDirty=S.dirty[s.k]!==undefined,isUnsaved=(hasWorking&&hasPersistent)?(working!==persistent):false,dv=hasWorking?s.f(working):'—',pv=hasPersistent?s.f(persistent):'—',cls='cfgr'+((isDirty||isUnsaved)?' dirty':''),valCls='cv'+((isDirty||isUnsaved)?' dirty':''),sub=isUnsaved&&!isDirty?`<div style="font-size:8px;color:var(--dim)">saved: ${pv}</div>`:'',prettyName=s.k.replace(/_/g,' ');return `<div class="${cls}" onclick="openEdit(${s.n})"><div class="cn">${String(s.n).padStart(2,'0')}</div><div class="ci"><div class="cnm">${prettyName}</div><div class="cd">${s.d}</div>${sub}</div><div class="${valCls}">${dv}</div></div>`;}).join('');}
+function togAdv(){S.advOpen=!S.advOpen;syncAdvToggleUI();}
+function openEdit(n){const s=SCHEMA.find(x=>x.n===n);if(!s)return;const cur=S.working[s.k],saved=S.persistent[s.k];if(cur===undefined||saved===undefined){log('Waiting for ESP32 config — open Settings while connected.',false,true);return;}editN=n;const isMsVar=s.ms===true;document.getElementById('mtitle').textContent=s.k.replace(/_/g,' ');document.getElementById('mdesc').textContent=s.d+'\nSaved: '+s.f(saved);document.getElementById('munit').textContent=isMsVar?'Enter value in MINUTES':'Enter value';document.getElementById('minput').value=isMsVar?msToMin(cur):cur;document.getElementById('modal').classList.remove('hide');setTimeout(()=>document.getElementById('minput').focus(),150);}
+function mkey(e){if(e.key==='Enter')applyM();if(e.key==='Escape')closeM();}
+function applyM(){const s=SCHEMA.find(x=>x.n===editN);if(!s){closeM();return;}const raw=parseFloat(document.getElementById('minput').value);if(isNaN(raw)){closeM();return;}const v=(s.ms===true)?minToMs(raw):raw;S.working[s.k]=v;S.dirty[s.k]=v;sendCmd('set '+editN+' '+v);renderCfg();closeM();}
+function closeM(){document.getElementById('modal').classList.add('hide');editN=null;}
+function saveCfg(){if(!Object.keys(S.dirty).length||!S.conn)return;S.savePending=true;sendCmd('save config');setTimeout(()=>pullCfgFromEsp(false).catch(()=>{}),950);renderCfg();log('Saving config to ESP32 flash...',true);}
+function resetFlowLockout(){if(!S.conn){log('Not connected',false,true);return;}if(!confirm('Clear hard lockout from 5 consecutive flow faults?\n\nThis does not change configuration values.'))return;sendCmd('reset flow lockout');setTimeout(()=>{if(!S.conn)return;bleJ('dash',20000).then(applyDashFromJson).catch(()=>{});scheduleUiFlush();},450);}
+function doReset(){if(!confirm('Reset ALL settings to factory defaults?\n\nThis loads factory values into RAM only.\nSend SAVE CONFIG afterward to make them permanent.'))return;S.dirty={};S.savePending=false;sendCmd('reset');setTimeout(()=>pullCfgFromEsp(true).catch(()=>{}),650);renderCfg();scheduleUiFlush();log('Factory defaults requested from ESP32 — send save config to persist',false,false);}
+// --- Manual water + RTC: commands mirror RxCallbacks on receiver ---
+function manualWaterOn(){S.waterDuration=S.working.MANUAL_WATERING_DURATION||60000;S.cool=false;S.coolSec=0;setPumpState({pump:true,mode:'RUNNING',startNow:true,durationMs:S.waterDuration});sendCmd('water on');scheduleUiFlush({sparks:true});}
+function manualWaterOff(){setPumpState({pump:false,mode:'IDLE',durationMs:0});S.waterStartedAt=0;S.cool=true;S.coolSec=Math.floor((S.working.WATERING_COOLDOWN||1800000)/1000);sendCmd('water off');scheduleUiFlush({sparks:true});}
+function syncRtcNow(){const now=new Date();sendCmd('set time '+now.getFullYear()+' '+(now.getMonth()+1)+' '+now.getDate()+' '+now.getHours()+' '+now.getMinutes()+' '+now.getSeconds());log('RTC synced to phone time',true);}
+function rtcKey(e){if(e.key!=='Enter')return;const v=e.target.value.trim(),m=v.match(/^(\d{4})\s+(\d{1,2})\s+(\d{1,2})\s+(\d{1,2})\s+(\d{1,2})\s+(\d{1,2})$/);if(m){sendCmd('set time '+m[1]+' '+m[2]+' '+m[3]+' '+m[4]+' '+m[5]+' '+m[6]);e.target.value='';}else log('Format: yyyy mm dd hh mm ss',false,true);}
+// --- BLE activity log (trimmed ring) ---
+function log(msg,hl,er){const el=document.getElementById('blog'),t=new Date().toTimeString().slice(0,8),d=document.createElement('div');d.className='le'+(er?' er':hl?' hl':'');d.innerHTML='<span class="lt">'+t+' </span>'+msg;el.appendChild(d);while(el.children.length>40)el.removeChild(el.firstChild);el.scrollTop=el.scrollHeight;}
+function showScr(name,title){currentScreen=name;document.querySelectorAll('.scr').forEach(s=>s.classList.remove('on'));document.querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));document.getElementById('scr-'+name).classList.add('on');document.getElementById('tab-'+name).classList.add('on');document.getElementById('stitle').textContent=title;if(name==='cfg'){renderCfg();if(S.conn)(async()=>{try{await new Promise(r=>setTimeout(r,80));await pullCfgFromEsp(!S.configLoaded);await new Promise(r=>setTimeout(r,100));await pullRtcViaJson();}catch(e){log('Settings refresh '+e.message,false,true);}})();}}
+// --- 1s tick: header clock, RTC extrapolation, cooldown decay, stale pump/flow guard ---
+setInterval(()=>{document.getElementById('clk').textContent=new Date().toTimeString().slice(0,8);if(S.rtc&&S.rtcReceivedAt>0){const elapsedSec=Math.floor((Date.now()-S.rtcReceivedAt)/1000),base=new Date(S.rtc.replace(' ','T')).getTime(),ticked=new Date(base+elapsedSec*1000),ts=ticked.getFullYear()+'-'+String(ticked.getMonth()+1).padStart(2,'0')+'-'+String(ticked.getDate()).padStart(2,'0')+' '+String(ticked.getHours()).padStart(2,'0')+':'+String(ticked.getMinutes()).padStart(2,'0')+':'+String(ticked.getSeconds()).padStart(2,'0');document.getElementById('rtcdisp').textContent=ts;}if(S.cool){if(S.coolSec>0){S.coolSec--;if(S.coolSec<=0)S.cool=false;}else S.cool=false;}dash();const _n=Date.now();if(!dash._lastSparkMs||_n-dash._lastSparkMs>=250){dash._lastSparkMs=_n;drawSparks();}},1000);
+// --- Boot: pad layout under overlay until first connect; no-BLE browser guard ---
+document.querySelectorAll('.scr').forEach(s=>s.classList.add('banner-pad'));
+if(!navigator.bluetooth){document.getElementById('overlay').innerHTML=`<div class="ov-left"><div class="ov-title" style="color:var(--red)">BROWSER NOT SUPPORTED</div><div class="ov-sub">Open in Chrome on Android. chrome://flags → enable Experimental Web Platform</div><div id="err-msg"></div></div>`;}
+renderCfg();window.addEventListener('resize',()=>{drawSparks();});
+</script>
+</body>
+</html>
