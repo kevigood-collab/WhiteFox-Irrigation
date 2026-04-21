@@ -110,6 +110,7 @@ canvas{display:block;width:100%;height:100%}
 .sv{font-size:19px;font-weight:bold;color:var(--white)}
 .su{font-size:9px;color:var(--dim)}
 .evl{background:var(--bg2);border:1px solid var(--b);border-radius:4px;overflow:hidden}
+.evl.esp-scroll5{max-height:176px;overflow-y:auto}
 .evr{padding:7px 11px;border-bottom:1px solid var(--b);font-size:10px;display:flex;justify-content:space-between}
 .evr:last-child{border-bottom:none}
 .evm{padding:11px;text-align:center;font-size:10px;color:var(--dim)}
@@ -165,7 +166,7 @@ canvas{display:block;width:100%;height:100%}
 <div id="app">
   <div id="hdr">
     <div class="hd-top">
-      <div class="hd-path">WHITE_FOX_CABIN / IRRIGATION <span style="color:#fff;font-size:11px;margin-left:8px;font-weight:bold">v1.0.28</span></div>
+      <div class="hd-path">WHITE_FOX_CABIN / IRRIGATION <span style="color:#fff;font-size:11px;margin-left:8px;font-weight:bold">v1.0.29</span></div>
       <div class="hd-ble" onclick="toggleBle()"><div class="ble-dot" id="bdot"></div><span id="blbl">CONNECT</span></div>
     </div>
     <div class="hd-bot"><div class="hd-title" id="stitle">Dashboard</div><div class="hd-clk" id="clk">--:--:--</div></div>
@@ -201,15 +202,15 @@ canvas{display:block;width:100%;height:100%}
         <div class="ch" style="margin-bottom:6px"><div class="cl">ESP32 · RUN LOG</div></div>
         <div style="font-size:9px;color:var(--dim);line-height:1.5;margin-bottom:8px">Totals and last runs live in controller flash (NVS <code>wfhist</code>). <b>CLEAR STORED</b> (below) clears that when BLE is connected, plus this phone’s charts. Flow volume = pulses ÷ FLOW_PULSE while the relay is on.</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:8px">
-          <div class="sc"><div class="sl">TOTAL L (meter)</div><div class="sv" id="esp-tot-l">—</div></div>
+          <div class="sc"><div class="sl">TOTAL FLOW (LITRES)</div><div class="sv" id="esp-tot-l">—</div></div>
           <div class="sc"><div class="sl">AUTO RUNS</div><div class="sv" id="esp-n-auto">—</div></div>
           <div class="sc"><div class="sl">EMRG RUNS</div><div class="sv" id="esp-n-emg">—</div></div>
           <div class="sc"><div class="sl">MANUAL RUNS</div><div class="sv" id="esp-n-man">—</div></div>
         </div>
         <div class="cl" style="margin-bottom:5px;padding:0 2px">RECENT RUNS · newest first</div>
-        <div class="evl" id="esp-run-list"><div class="evm">connect BLE, then REFRESH</div></div>
+        <div class="evl esp-scroll5" id="esp-run-list"><div class="evm">connect BLE, auto-refreshing...</div></div>
         <div class="cl" style="margin:10px 0 5px;padding:0 2px">EVENT LOG · failures &amp; catches (ESP NVS)</div>
-        <div class="evl" id="esp-evt-list"><div class="evm">—</div></div>
+        <div class="evl esp-scroll5" id="esp-evt-list"><div class="evm">—</div></div>
       </div>
       <div class="ch" style="margin-bottom:7px;padding:0 3px;flex-wrap:wrap;gap:8px"><div class="cl" style="flex:1;min-width:100px">TIMELINE · 24H</div><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><button type="button" class="hibtn" onclick="exportHistJson()">EXPORT JSON</button><button type="button" class="hibtn" onclick="clearStoredHist()">CLEAR STORED</button></div><div class="cl" style="width:100%;margin-top:2px">SOIL % · FLOW (this phone)</div></div>
       <div class="hcw"><canvas id="hcnv"></canvas></div>
