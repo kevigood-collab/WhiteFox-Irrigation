@@ -122,12 +122,11 @@ canvas{display:block;width:100%;height:100%}
 .rtcbtn-dim:active{background:var(--b)}
 .rtci{width:100%;background:var(--bg);border:1px solid var(--b2);border-radius:3px;padding:7px 8px;font-family:var(--f);font-size:10px;color:var(--tx)}
 .rtci:focus{outline:none;border-color:var(--green)}
-.cfgh{display:flex;justify-content:flex-start;align-items:center;margin-bottom:3px;padding:0 3px;min-width:0}
+.cfgh{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px;padding:0 3px;min-width:0}
 .cfgl{font-size:9px;letter-spacing:.15em;color:var(--dim);min-width:0}
-.advline{margin:0 3px 8px}
-.advt{display:block;width:100%;font-family:var(--f);font-size:10px;font-weight:bold;color:var(--green);background:var(--bg2);border:1px solid var(--green);border-radius:4px;cursor:pointer;letter-spacing:.06em;user-select:none;padding:7px 8px;line-height:1;text-align:center}
-.advt:active{opacity:.75}
-.advt:focus{outline:none}
+.advtxt{font-family:var(--f)!important;font-size:10px!important;font-weight:700!important;color:var(--green)!important;background:transparent!important;border:none!important;cursor:pointer;letter-spacing:.04em;user-select:none;line-height:1;padding:0!important;margin:0!important;display:inline-block!important;visibility:visible!important;opacity:1!important;white-space:nowrap}
+.advtxt:active{opacity:.7!important}
+.advtxt:focus{outline:none}
 .cfglist{background:var(--bg2);border:1px solid var(--b);border-radius:5px;overflow:hidden;margin-bottom:9px}
 .cfgr{display:flex;align-items:center;padding:9px 11px;border-bottom:1px solid var(--b);cursor:pointer}
 .cfgr:last-child{border-bottom:none}
@@ -166,7 +165,8 @@ canvas{display:block;width:100%;height:100%}
 <div id="app">
   <div id="hdr">
     <div class="hd-top">
-      <div class="hd-path">WHITE_FOX_CABIN / IRRIGATION <span style="color:#fff;font-size:11px;margin-left:8px;font-weight:bold">v1.0.25</span></div>      <div class="hd-ble" onclick="toggleBle()"><div class="ble-dot" id="bdot"></div><span id="blbl">CONNECT</span></div>
+      <div class="hd-path">WHITE_FOX_CABIN / IRRIGATION <span style="color:#fff;font-size:11px;margin-left:8px;font-weight:bold">v1.0.26</span></div>
+      <div class="hd-ble" onclick="toggleBle()"><div class="ble-dot" id="bdot"></div><span id="blbl">CONNECT</span></div>
     </div>
     <div class="hd-bot"><div class="hd-title" id="stitle">Dashboard</div><div class="hd-clk" id="clk">--:--:--</div></div>
   </div>
@@ -226,8 +226,7 @@ canvas{display:block;width:100%;height:100%}
         <div style="display:flex;gap:7px;margin-bottom:7px"><button class="rtcbtn" onclick="syncRtcNow()">⟳ SYNC SENSOR TO PHONE TIME</button><button class="rtcbtn rtcbtn-dim" onclick="sendCmd('time')">↺ REFRESH</button></div>
         <input class="rtci" id="rtci" placeholder="manual: set time yyyy mm dd hh mm ss →" onkeydown="rtcKey(event)">
       </div>
-      <div class="cfgh"><div class="cfgl">CONFIG · 15 VARS</div></div>
-      <div class="advline" id="advline"><button type="button" class="advt" id="advt" onclick="togAdv()" aria-expanded="false">▼ ADVANCED SETTINGS</button></div>
+      <div class="cfgh"><div class="cfgl">CONFIG · 15 VARS</div><button type="button" class="advtxt" id="advToggle" onclick="togAdv()" aria-expanded="false">▼ advanced</button></div>
       <div class="cfglist" id="cml"></div>
       <div class="advsec" id="advsec"><div class="cfglist" id="cal"></div></div>
       <div class="savebar" id="savebar" onclick="saveCfg()">· NO CHANGES TO SAVE</div>
@@ -319,9 +318,8 @@ function sparkline(id,data,col,lo,hi){const c=document.getElementById(id);if(!c)
 // --- History tab: 24h canvas + recent phone-side pump events list ---
 function drawHist(){const ev=hist.events;document.getElementById('hev').textContent=ev.length;const avg=hist.soil.length?Math.round(hist.soil.reduce((a,b)=>a+b.v,0)/hist.soil.length):'--';document.getElementById('havg').textContent=avg;document.getElementById('hvol').textContent=ev.reduce((a,e)=>a+e.vol,0).toFixed(1);const el=document.getElementById('evl');if(!ev.length)el.innerHTML='<div class="evm">no events in range</div>';else{el.innerHTML=ev.slice(-8).reverse().map(e=>{const d=new Date(e.t),tc=e.type==='flow_fault'?'var(--red)':'var(--green)';return `<div class="evr"><span style="color:${tc}">${d.toTimeString().slice(0,5)}</span><span>${e.type}</span><span style="color:var(--dim)">${Math.round(e.dur)}s · ${e.vol.toFixed(1)}L</span></div>`;}).join('');}const c=document.getElementById('hcnv');if(!c)return;const dpr=window.devicePixelRatio||1,w=c.offsetWidth||c.parentElement.clientWidth-12,h=c.offsetHeight||158;c.width=w*dpr;c.height=h*dpr;const ctx=c.getContext('2d');ctx.scale(dpr,dpr);ctx.clearRect(0,0,w,h);const now=Date.now(),span=24*3600000,tMin=now-span,tx=t=>((t-tMin)/span)*w,ty=(v,lo,hi)=>h-((v-lo)/(hi-lo))*(h-16)-8;ctx.strokeStyle='#1a1a1a';ctx.lineWidth=1;[0,25,50,75,100].forEach(v=>{const y=ty(v,0,100);ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();ctx.fillStyle='#333';ctx.font='9px Courier New';ctx.fillText(v,2,y-2);});const thr=S.working.MOISTURE_THRESHOLD_PERCENT||50,emg=S.working.EMERGENCY_THRESHOLD_PERCENT||20;ctx.setLineDash([4,4]);ctx.strokeStyle='rgba(240,160,48,.5)';ctx.beginPath();ctx.moveTo(0,ty(thr,0,100));ctx.lineTo(w,ty(thr,0,100));ctx.stroke();ctx.strokeStyle='rgba(224,80,80,.5)';ctx.beginPath();ctx.moveTo(0,ty(emg,0,100));ctx.lineTo(w,ty(emg,0,100));ctx.stroke();ctx.setLineDash([]);hist.bands.filter(b=>b.e>tMin).forEach(b=>{ctx.fillStyle='rgba(68,136,221,.12)';ctx.fillRect(Math.max(0,tx(b.s)),0,Math.min(w,tx(b.e))-Math.max(0,tx(b.s)),h);});const sp=hist.soil.filter(p=>p.t>tMin);if(sp.length>1){ctx.beginPath();sp.forEach((p,i)=>{const x=tx(p.t),y=ty(p.v,0,100);i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);});ctx.strokeStyle='#00d4a0';ctx.lineWidth=1.5;ctx.stroke();}const fp=hist.flow.filter(p=>p.t>tMin&&p.v>0);if(fp.length>1){ctx.beginPath();fp.forEach((p,i)=>{const x=tx(p.t),y=ty(p.v,0,8);i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);});ctx.strokeStyle='#4488dd';ctx.lineWidth=1;ctx.stroke();}ctx.fillStyle='#333';ctx.font='9px Courier New';for(let hb=24;hb>=0;hb-=4){const x=tx(now-hb*3600000);if(x>10&&x<w-10)ctx.fillText('-'+hb+'h',x+2,h-2);}}
 // --- Settings lists + save bar (dirty = pending BLE apply, unsaved vs flash) ---
-function ensureAdvToggle(){const cml=document.getElementById('cml');if(!cml)return;let line=document.getElementById('advline');if(!line){line=document.createElement('div');line.id='advline';line.className='advline';cml.parentNode.insertBefore(line,cml);}let btn=document.getElementById('advt');if(!btn){btn=document.createElement('button');btn.type='button';btn.id='advt';btn.className='advt';btn.onclick=togAdv;line.appendChild(btn);}}
-function syncAdvToggleUI(){const sec=document.getElementById('advsec'),btn=document.getElementById('advt');if(!sec||!btn)return;sec.className='advsec'+(S.advOpen?' open':'');btn.setAttribute('aria-expanded',S.advOpen?'true':'false');btn.textContent=S.advOpen?'▲ ADVANCED SETTINGS':'▼ ADVANCED SETTINGS';}
-function renderCfg(){renderList('cml',SCHEMA.filter(s=>!s.adv));renderList('cal',SCHEMA.filter(s=>s.adv));ensureAdvToggle();syncAdvToggleUI();const hd=Object.keys(S.dirty).length>0,sb=document.getElementById('savebar');sb.textContent=hd?'▲ SAVE CONFIG — unsaved changes':'· NO CHANGES TO SAVE';sb.className='savebar'+(hd?' has':'');}
+function syncAdvToggleUI(){const sec=document.getElementById('advsec'),btn=document.getElementById('advToggle');if(!sec||!btn)return;sec.className='advsec'+(S.advOpen?' open':'');btn.setAttribute('aria-expanded',S.advOpen?'true':'false');btn.textContent=S.advOpen?'▲ advanced':'▼ advanced';}
+function renderCfg(){renderList('cml',SCHEMA.filter(s=>!s.adv));renderList('cal',SCHEMA.filter(s=>s.adv));syncAdvToggleUI();const hd=Object.keys(S.dirty).length>0,sb=document.getElementById('savebar');sb.textContent=hd?'▲ SAVE CONFIG — unsaved changes':'· NO CHANGES TO SAVE';sb.className='savebar'+(hd?' has':'');}
 function renderList(id,sch){document.getElementById(id).innerHTML=sch.map(s=>{const working=S.working[s.k]!==undefined?S.working[s.k]:S.factory[s.k],persistent=S.persistent[s.k]!==undefined?S.persistent[s.k]:S.factory[s.k],isDirty=S.dirty[s.k]!==undefined,isUnsaved=(working!==persistent),dv=s.f(working),pv=s.f(persistent),cls='cfgr'+((isDirty||isUnsaved)?' dirty':''),valCls='cv'+((isDirty||isUnsaved)?' dirty':''),sub=isUnsaved&&!isDirty?`<div style="font-size:8px;color:var(--dim)">saved: ${pv}</div>`:'',prettyName=s.k.replace(/_/g,' ');return `<div class="${cls}" onclick="openEdit(${s.n})"><div class="cn">${String(s.n).padStart(2,'0')}</div><div class="ci"><div class="cnm">${prettyName}</div><div class="cd">${s.d}</div>${sub}</div><div class="${valCls}">${dv}</div></div>`;}).join('');}
 function togAdv(){S.advOpen=!S.advOpen;syncAdvToggleUI();}
 function openEdit(n){const s=SCHEMA.find(x=>x.n===n);if(!s)return;editN=n;const cur=S.working[s.k]!==undefined?S.working[s.k]:S.factory[s.k],saved=S.persistent[s.k]!==undefined?S.persistent[s.k]:S.factory[s.k],fac=S.factory[s.k],isMsVar=s.ms===true;document.getElementById('mtitle').textContent=s.k.replace(/_/g,' ');document.getElementById('mdesc').textContent=s.d+'\nSaved: '+s.f(saved)+'  Factory: '+s.f(fac);document.getElementById('munit').textContent=isMsVar?'Enter value in MINUTES':'Enter value';document.getElementById('minput').value=isMsVar?msToMin(cur):cur;document.getElementById('modal').classList.remove('hide');setTimeout(()=>document.getElementById('minput').focus(),150);}
