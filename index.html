@@ -52,6 +52,9 @@ body{height:100%;background:var(--bg);color:var(--tx);font-family:var(--f);font-
 .ov-title{font-size:10px;font-weight:bold;color:var(--white);letter-spacing:.05em}
 .ov-sub{font-size:9px;color:var(--dim);line-height:1.4;margin-top:1px}
 .ov-btn{background:var(--green);color:#000;border:none;border-radius:3px;padding:7px 12px;font-family:var(--f);font-size:10px;font-weight:bold;letter-spacing:.08em;cursor:pointer;white-space:nowrap;flex-shrink:0}
+.ov-actions{display:flex;flex-direction:column;gap:7px;flex-shrink:0;align-self:center}
+.ov-alt{background:transparent;color:var(--amber);border:1px solid var(--amber);border-radius:3px;padding:6px 10px;font-family:var(--f);font-size:9px;font-weight:bold;letter-spacing:.06em;cursor:pointer;white-space:nowrap}
+.ov-alt:active{opacity:.75}
 #err-msg{font-size:9px;color:var(--red);margin-top:2px;min-height:0}
 .card{background:var(--bg2);border:1px solid var(--b);border-radius:5px;padding:11px;margin-bottom:9px}
 .ch{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px}
@@ -158,13 +161,13 @@ canvas{display:block;width:100%;height:100%}
 <div id="app">
   <div id="hdr">
     <div class="hd-top">
-      <div class="hd-path">WHITE_FOX_CABIN / IRRIGATION <span style="color:#fff;font-size:11px;margin-left:8px;font-weight:bold">v1.0.19</span></div>
+      <div class="hd-path">WHITE_FOX_CABIN / IRRIGATION <span style="color:#fff;font-size:11px;margin-left:8px;font-weight:bold">v1.0.20</span></div>
       <div class="hd-ble" onclick="toggleBle()"><div class="ble-dot" id="bdot"></div><span id="blbl">CONNECT</span></div>
     </div>
     <div class="hd-bot"><div class="hd-title" id="stitle">Dashboard</div><div class="hd-clk" id="clk">--:--:--</div></div>
   </div>
   <div id="screens">
-    <div id="overlay"><div class="ov-left"><div class="ov-title">NOT CONNECTED</div><div class="ov-sub">BLE disconnected — data offline</div><div id="err-msg"></div></div><button class="ov-btn" onclick="connectBle()">▶ CONNECT</button></div>
+    <div id="overlay"><div class="ov-left"><div class="ov-title">NOT CONNECTED</div><div class="ov-sub">BLE disconnected — data offline</div><div id="err-msg"></div></div><div class="ov-actions"><button type="button" class="ov-btn" onclick="connectBle()">▶ CONNECT</button><button type="button" class="ov-alt" onclick="connectBleAny()">ALL DEVICES…</button></div></div>
     <!-- SCREEN: Dashboard — soil %, flow, pump row, sparklines, BLE log (dash/updateSparks) -->
     <div class="scr on" id="scr-dash">
       <div class="card">
@@ -286,7 +289,10 @@ const SVC='00000001-0000-feed-0000-000000000000',RXU='00000002-0000-feed-0000-00
 // --- Optimistic pump state for UI when firmware sends "Watering" / stop lines ---
 function setPumpState({pump,mode,startNow=false,durationMs=null}){S.pump=!!pump;S.mode=mode;if(startNow)S.waterStartedAt=Date.now();if(durationMs!==null)S.waterDuration=durationMs;}
 // --- BLE connect: TX notify -> onNotify; RX write for commands (newline-terminated) ---
-async function connectBle(){const em=document.getElementById('err-msg');em.textContent='Scanning...';try{dev=await navigator.bluetooth.requestDevice({filters:[{name:'WhiteFox Irrigation'},{namePrefix:'WhiteFox'},{services:[SVC]}],optionalServices:[SVC]});dev.addEventListener('gattserverdisconnected',onDC);srv=await dev.gatt.connect();const svc=await srv.getPrimaryService(SVC);txC=await svc.getCharacteristic(TXU);rxC=await svc.getCharacteristic(RXU);await txC.startNotifications();txC.addEventListener('characteristicvaluechanged',onNotify);setConn(true);document.getElementById('overlay').classList.add('hide');em.textContent='';log('BLE connected.',true);setTimeout(()=>{sendCmd('time');},800);}catch(e){const raw=e&&(e.message||String(e))||'Connection failed',low=raw.toLowerCase();let ui=raw;if(low.includes('no compatible')||e.name==='NotFoundError')ui='No WhiteFox found: power on receiver, wait ~5s after boot, move closer, use Chrome on Android (BT+Location on).';else if(low.includes('cancel')||low.includes('chooser'))ui='Picker closed — tap WhiteFox Irrigation in the list.';em.textContent=ui;log('Error: '+raw,false,true);}}
+async function attachBleFromDevice(chosen){dev=chosen;dev.addEventListener('gattserverdisconnected',onDC);srv=await dev.gatt.connect();const svc=await srv.getPrimaryService(SVC);txC=await svc.getCharacteristic(TXU);rxC=await svc.getCharacteristic(RXU);await txC.startNotifications();txC.addEventListener('characteristicvaluechanged',onNotify);setConn(true);document.getElementById('overlay').classList.add('hide');document.getElementById('err-msg').textContent='';log('BLE connected.',true);setTimeout(()=>{sendCmd('time');},800);}
+function connectBleErr(em,e){const raw=e&&(e.message||String(e))||'Connection failed',low=raw.toLowerCase();let ui=raw;if(low.includes('no compatible')||e.name==='NotFoundError')ui='No match in filtered scan. Tap ALL DEVICES… or check ESP32 power + Chrome + BT + Location.';else if(low.includes('cancel')||low.includes('chooser'))ui='Picker closed — pick a device from the list.';else if(low.includes('gatt')||low.includes('service'))ui='Wrong device? Use ALL DEVICES… and choose WhiteFox Irrigation.';em.textContent=ui;log('Error: '+raw,false,true);}
+async function connectBle(){const em=document.getElementById('err-msg');em.textContent='Scanning…';try{const chosen=await navigator.bluetooth.requestDevice({filters:[{name:'WhiteFox Irrigation'},{namePrefix:'WhiteFox'},{services:[SVC]}],optionalServices:[SVC,RXU,TXU]});await attachBleFromDevice(chosen);}catch(e){connectBleErr(em,e);}}
+async function connectBleAny(){const em=document.getElementById('err-msg');em.textContent='Scanning all devices…';try{const chosen=await navigator.bluetooth.requestDevice({acceptAllDevices:true,optionalServices:[SVC,RXU,TXU]});await attachBleFromDevice(chosen);}catch(e){connectBleErr(em,e);}}
 async function toggleBle(){if(S.conn){if(dev&&dev.gatt.connected)dev.gatt.disconnect();}else connectBle();}
 function onDC(){setConn(false);log('Disconnected',false,true);cmdQueue.length=0;cmdInFlight=false;document.getElementById('overlay').classList.remove('hide');document.querySelectorAll('.scr').forEach(s=>s.classList.add('banner-pad'));setPumpState({pump:false,mode:'UNKNOWN',durationMs:0});S.flow=0;dash();}
 function setConn(v){S.conn=v;document.getElementById('bdot').className='ble-dot'+(v?' on':'');document.getElementById('blbl').textContent=v?'BLE LINK':'CONNECT';if(v){document.getElementById('overlay').classList.add('hide');document.querySelectorAll('.scr').forEach(s=>s.classList.remove('banner-pad'));}}
