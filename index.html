@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <!--
-  CURRENT BUILD VERSION: v1.2.0-field
-  Field build: Dashboard + Settings + Help only. BLE = j cfg|time|dash + legacy fallbacks.
-  History tab is static (no BLE). Receiver firmware: ESP32_Now_Protocol_Recieve/ESP32_Now_Protocol_Recieve.ino (Arduino IDE).
+  CURRENT BUILD VERSION: v1.2.1-field
+  Field build: Dashboard + Settings + Help. BLE cfg/RTC queue + pending parser fix; status line w/o compact nx; lockout refresh.
+  History tab is static (no BLE). Receiver: ESP32_Now_Protocol_Recieve/ESP32_Now_Protocol_Recieve.ino (Arduino IDE).
 -->
 <html lang="en">
 <head>
@@ -167,7 +167,7 @@ canvas{display:block;width:100%;height:100%}
 <div id="app">
   <div id="hdr">
     <div class="hd-top">
-      <div class="hd-path">WHITE_FOX_CABIN / IRRIGATION <span style="color:#fff;font-size:11px;margin-left:8px;font-weight:bold">v1.2.0</span><span id="lk-badge" class="lk-badge">LOCKOUT</span></div>
+      <div class="hd-path">WHITE_FOX_CABIN / IRRIGATION <span style="color:#fff;font-size:11px;margin-left:8px;font-weight:bold">v1.2.1</span><span id="lk-badge" class="lk-badge">LOCKOUT</span></div>
       <div class="hd-ble" onclick="toggleBle()"><div class="ble-dot" id="bdot"></div><span id="blbl">CONNECT</span></div>
     </div>
     <div class="hd-bot"><div class="hd-title" id="stitle">Dashboard</div><div class="hd-clk" id="clk">--:--:--</div></div>
