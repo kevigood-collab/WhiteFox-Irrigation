@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!--
-  CURRENT BUILD VERSION: v1.0.43
+  CURRENT BUILD VERSION: v1.0.44
   WhiteFox Irrigation — phone dashboard (static HTML + JS).
   Talks to receiver_node.ino over Web Bluetooth (Chrome/Android): same GATT UUIDs
   as firmware, text notify lines parsed in parseLine(). History tab merges
@@ -169,7 +169,7 @@ canvas{display:block;width:100%;height:100%}
 <div id="app">
   <div id="hdr">
     <div class="hd-top">
-      <div class="hd-path">WHITE_FOX_CABIN / IRRIGATION <span style="color:#fff;font-size:11px;margin-left:8px;font-weight:bold">v1.0.43</span><span id="lk-badge" class="lk-badge">LOCKOUT</span></div>
+      <div class="hd-path">WHITE_FOX_CABIN / IRRIGATION <span style="color:#fff;font-size:11px;margin-left:8px;font-weight:bold">v1.0.44</span><span id="lk-badge" class="lk-badge">LOCKOUT</span></div>
       <div class="hd-ble" onclick="toggleBle()"><div class="ble-dot" id="bdot"></div><span id="blbl">CONNECT</span></div>
     </div>
     <div class="hd-bot"><div class="hd-title" id="stitle">Dashboard</div><div class="hd-clk" id="clk">--:--:--</div></div>
@@ -354,6 +354,7 @@ function requestConfigSync(force=false){
 let buf='';function onNotify(e){buf+=new TextDecoder().decode(e.target.value);const lines=buf.split('\n');buf=lines.pop();lines.forEach(parseLine);}
 function parseLine(raw){
   const line=raw.trim();
+  let m;
   if(!line)return;
   if(line==='STATS_BEGIN'){espStatsMode=true;espHist.totL=0;espHist.dayL=0;espHist.monthL=0;espHist.nAuto=0;espHist.nEmg=0;espHist.nMan=0;espHist.runs.length=0;espHist.evt=[];return;}
   if(line==='EVT_BEGIN'){espHist.evt=[];return;}
@@ -364,7 +365,6 @@ function parseLine(raw){
   if(line==='Saved to persistent storage'){Object.assign(S.persistent,S.dirty);S.dirty={};S.savePending=false;renderCfg();log(line,true);return;}
   if(line==='Flow lockout cleared'){S.flowLockout=false;dash();log(line,true);return;}
   if(line==='Factory defaults loaded (RAM only)'){S.savePending=false;requestConfigSync(true);log(line,true);return;}
-  let m;
   m=line.match(/^Soil:\s*(\d+)%/);if(m){S.soilPct=+m[1];hist.soil.push({t:Date.now(),v:+m[1]});if(hist.soil.length>SOIL_SPARK_MAX)hist.soil.shift();dash();schedulePersistHist();return;}
   m=line.match(/^Flow:\s*([\d.]+)/);if(m){S.flow=+m[1];S.lastFlowMsg=Date.now();hist.flow.push({t:Date.now(),v:+m[1]});if(hist.flow.length>FLOW_SPARK_MAX)hist.flow.shift();dash();schedulePersistHist();return;}
   if(line==='Watering'){S.cool=false;S.coolSec=0;if(!S.pump){setPumpState({pump:true,mode:'RUNNING'});if(!hist.pumpStart)hist.pumpStart=Date.now();const dur=S.working.WATERING_DURATION;S.waterDuration=(dur&&dur>0)?dur:60000;}if(S.waterStartedAt===0)S.waterStartedAt=Date.now();if(S.soilPct!==null&&S.soilPct<(S.working.EMERGENCY_THRESHOLD_PERCENT||20))S.mode='EMERGENCY';S.lastWateringMsg=Date.now();dash();return;}
