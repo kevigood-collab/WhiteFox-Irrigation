@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!--
-  CURRENT BUILD VERSION: v1.2.43-field
+  CURRENT BUILD VERSION: v1.2.44-field
   Field build: Text BLE — read 0..15, time, status, history, water, set, save, reset, clear history; Settings toggles master shutoff hold/release (pump LOCKED until SYSTEM RESUME). ESP: V + WF_* + SOIL/FLOW + WF HT snapshot + persisted WF RH/WF EH rows; live WF RR/WF EV catches/faults; status/config may arrive as one notify (multiple LF-separated lines).
   History tab: opening History sends history (WF HT); CLEAR STORED → clear history. Receiver: ESP32_Now_Protocol_Recieve/ESP32_Now_Protocol_Recieve.ino (Arduino IDE).
 -->
@@ -133,9 +133,9 @@ canvas{display:block;width:100%;height:100%}
 .her-id{color:var(--dim);white-space:nowrap;text-align:right}
 .rtcc{background:var(--bg2);border:1px solid var(--b);border-radius:5px;padding:11px;margin-bottom:9px}
 .rtcl{font-size:9px;letter-spacing:.15em;color:var(--dim);margin-bottom:5px}
-.rtct{font-size:20px;font-weight:bold;color:var(--white);margin-bottom:7px;letter-spacing:-.01em}
-.rtcbtn{flex:1;background:var(--green);color:#000;border:none;border-radius:3px;padding:7px 8px;font-family:var(--f);font-size:10px;font-weight:bold;letter-spacing:.06em;cursor:pointer}
-.rtcbtn:active{background:var(--green2)}
+.rtct{font-size:20px;font-weight:bold;color:var(--white);margin-bottom:4px;letter-spacing:-.01em}
+.rtcbtn-sync{display:block;width:100%;margin-top:2px;padding:6px 10px;font-family:var(--f);font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:#7ab8a8;background:#0f1c18;border:1px solid #1a4a3d;border-radius:4px;cursor:pointer;box-shadow:none}
+.rtcbtn-sync:active{background:#152a22;border-color:var(--green2);color:var(--tx)}
 .cfgh{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px;padding:0 3px;min-width:0}
 .cfgl{font-size:9px;letter-spacing:.15em;color:var(--dim);min-width:0}
 .advtxt{font-family:var(--f)!important;font-size:10px!important;font-weight:700!important;color:var(--green)!important;background:transparent!important;border:none!important;cursor:pointer;letter-spacing:.04em;user-select:none;line-height:1;padding:0!important;margin:0!important;display:inline-block!important;visibility:visible!important;opacity:1!important;white-space:nowrap}
@@ -162,6 +162,7 @@ canvas{display:block;width:100%;height:100%}
 .hibtn:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
 .hist-actions{display:flex;gap:7px;flex-wrap:wrap;align-items:center;flex-shrink:0}
 .msrow{margin-bottom:11px}
+.msrow-bottom{margin-top:20px;margin-bottom:4px}
 .msbtn{width:100%;padding:14px 12px;border:none;border-radius:5px;font-family:var(--f);font-size:11px;font-weight:bold;letter-spacing:.08em;cursor:pointer;background:var(--red);color:#fff;box-shadow:0 0 12px rgba(224,80,80,.35);touch-action:none;user-select:none}
 .msbtn:active{opacity:.92;transform:scale(.99)}
 .msbtn.active{background:#b03030;box-shadow:0 0 16px rgba(224,80,80,.55)}
@@ -190,7 +191,7 @@ canvas{display:block;width:100%;height:100%}
 <div id="app">
   <div id="hdr">
     <div class="hd-top">
-      <div class="hd-path">WHITE_FOX_CABIN / IRRIGATION <span style="color:#fff;font-size:11px;margin-left:8px;font-weight:bold">v1.2.43</span></div>
+      <div class="hd-path">WHITE_FOX_CABIN / IRRIGATION <span style="color:#fff;font-size:11px;margin-left:8px;font-weight:bold">v1.2.44</span></div>
       <div class="hd-ble" onclick="toggleBle()"><div class="ble-dot" id="bdot"></div><span id="blbl">CONNECT</span></div>
     </div>
     <div class="hd-bot"><div class="hd-title" id="stitle">Dashboard</div><div class="hd-clk" id="clk">--:--:--</div></div>
@@ -254,11 +255,7 @@ canvas{display:block;width:100%;height:100%}
       <div class="rtcc">
         <div class="rtcl">RTC TIME</div>
         <div class="rtct" id="rtcdisp">---- -- -- --:--:--</div>
-        <div style="margin-bottom:7px"><button type="button" class="rtcbtn" style="width:100%" onclick="syncRtcNow()">⟳ SYNC SENSOR TO PHONE TIME</button></div>
-      </div>
-      <div class="msrow">
-        <button type="button" class="msbtn" id="btnMso" onclick="masterShutoffToggle(event)">MASTER SHUTOFF</button>
-        <div class="mscap">Tap <b>MASTER SHUTOFF</b> to lock the pump off and block all watering. The button becomes <b>SYSTEM RESUME</b>; tap again to unlock. If BLE disconnects, the receiver clears the lock.</div>
+        <button type="button" class="rtcbtn-sync" onclick="syncRtcNow()">Sync</button>
       </div>
       <div class="cfgh"><div class="cfgl">CONFIG · 15 VARS</div><button type="button" class="advtxt" id="advToggle" onclick="togAdv()" aria-expanded="false">▼ advanced</button></div>
       <div class="cfglist" id="cml"></div>
@@ -266,17 +263,21 @@ canvas{display:block;width:100%;height:100%}
       <div class="savebar" id="savebar" onclick="saveCfg()">· NO CHANGES TO SAVE</div>
       <div class="resetbar" onclick="doReset()">↺ FACTORY RESET</div>
       <div class="cfgnote">Changes are RAM only until SAVE CONFIG writes to flash.<br>Factory reset restores defaults in RAM — send SAVE CONFIG to persist.</div>
+      <div class="msrow msrow-bottom">
+        <button type="button" class="msbtn" id="btnMso" onclick="masterShutoffToggle(event)">MASTER SHUTOFF</button>
+        <div class="mscap">Tap <b>MASTER SHUTOFF</b> to lock the pump off and block all watering. The button becomes <b>SYSTEM RESUME</b>; tap again to unlock. If BLE disconnects, the receiver clears the lock.</div>
+      </div>
     </div>
     <!-- SCREEN: Help — static copy; mirrors watering rules + NVS "persist" settings in firmware -->
     <div class="scr" id="scr-help">
       <div class="card"><div class="ch"><div class="cl">HELP</div><div class="cl">WHITE FOX IRRIGATION</div></div><div style="font-size:10px;line-height:1.7;color:var(--tx)">Use this page instead of ad hoc Serial helpers. Live data uses the <b>status</b> text poll + <b>read</b> for settings.</div></div>
       <div class="card"><div class="ch"><div class="cl">BLE TROUBLESHOOTING</div></div><div style="font-size:10px;line-height:1.7;color:var(--tx)">If connect shows nothing, the phone is not seeing the receiver advertiser. On USB Serial (115200) you should see <code>BLE advertising as 'WhiteFox Irrigation'</code> after <code>Boot complete</code>. If that line never appears, fix power/USB, wrong sketch/port, or a boot crash before BLE. If you upgraded <b>Arduino ESP32</b>, try <b>Tools → Bluetooth mode</b> (Bluedroid vs NimBLE). Latest receiver firmware (<code>ESP32_Now_Protocol_Recieve.ino</code>) disables WiFi modem sleep and periodically refreshes advertising when disconnected.</div></div>
-      <div class="card"><div class="ch"><div class="cl">MASTER SHUTOFF</div></div><div style="font-size:10px;line-height:1.7;color:var(--tx)">Settings → <b>MASTER SHUTOFF</b> / <b>SYSTEM RESUME</b>: tap to send <code>master shutoff hold</code> (pump off, all starts blocked) or <code>master shutoff release</code>. BLE disconnect clears the lock on the ESP32.</div></div>
+      <div class="card"><div class="ch"><div class="cl">MASTER SHUTOFF</div></div><div style="font-size:10px;line-height:1.7;color:var(--tx)">Bottom of Settings → <b>MASTER SHUTOFF</b> / <b>SYSTEM RESUME</b>: tap to send <code>master shutoff hold</code> (pump off, all starts blocked) or <code>master shutoff release</code>. BLE disconnect clears the lock on the ESP32.</div></div>
       <div class="card"><div class="ch"><div class="cl">WATERING RULES</div></div><div style="font-size:10px;line-height:1.7;color:var(--tx)">1) <b>Normal watering</b>: Soil below moisture threshold, inside time window, and cooldown clear.<br>2) <b>Emergency watering</b>: Soil below emergency threshold, ignores time window. Same <b>cooldown</b> as normal runs — no emergency start until cooldown has expired.<br>3) <b>Manual watering</b>: WATER ON clears cooldown and starts immediately; full cooldown applies from pump stop.<br>4) <b>Cooldown</b>: Any new watering run (auto, emergency, or manual) clears the prior lockout timer on the controller.<br>5) <b>Flow guard</b>: After a prime period, if smoothed flow stays below the firmware minimum while the pump is on, the run aborts (tune constants in <code>ESP32_Now_Protocol_Recieve.ino</code>).<br>6) <b>Dry bench test</b>: Settings → Advanced → <b>15 FLOW CHECK ENABLED</b> = OFF (0) disables that abort; timer stop still applies. Turn ON (1) for normal use; <b>SAVE CONFIG</b> to persist.</div></div>
       <div class="card"><div class="ch"><div class="cl">TIME WINDOW</div></div><div style="font-size:10px;line-height:1.7;color:var(--tx)">Use 24-hour values.<br>Examples: 07 = 7am, 14 = 2pm.<br>For 11am to 2pm set:<br><b>05 WATER WINDOW START = 11</b><br><b>06 WATER WINDOW END = 14</b></div></div>
       <div class="card"><div class="ch"><div class="cl">SETTINGS WORKFLOW</div></div><div style="font-size:10px;line-height:1.7;color:var(--tx)">Change values in Settings list -> values are temporary in RAM.<br>Tap <b>SAVE CONFIG</b> to persist through reboot/power loss.<br><b>FACTORY RESET</b> restores compile-time defaults to RAM; save to persist.</div></div>
       <div class="card"><div class="ch"><div class="cl">KEY VALUES</div></div><div style="font-size:10px;line-height:1.7;color:var(--tx)"><b>04 MOISTURE THRESHOLD PERCENT</b>: normal dry trigger<br><b>07 EMERGENCY THRESHOLD PERCENT</b>: critical dry trigger (must be lower than #4)<br><b>01 WATERING DURATION</b>: auto run time<br><b>02 WATERING COOLDOWN</b>: lockout after run<br><b>03 MANUAL WATERING DURATION</b>: WATER ON run time</div></div>
-      <div class="card"><div class="ch"><div class="cl">RTC + LOG</div></div><div style="font-size:10px;line-height:1.7;color:var(--tx)">Settings screen auto-refreshes sensor time when opened.<br>Use <b>SYNC SENSOR TO PHONE TIME</b> to set RTC quickly.<br>BLE LOG shows <b>commands you send</b>, <b>alerts</b>, and <b>[dbg]</b> lines (v1.2.43+: notify chunk size, partial buffer length, CR count, each completed RX line, TX writes, pullCfg/pullRtc steps, pending read/time resolution) for side‑by‑side compare with ESP USB Serial.</div></div>
+      <div class="card"><div class="ch"><div class="cl">RTC + LOG</div></div><div style="font-size:10px;line-height:1.7;color:var(--tx)">Settings screen auto-refreshes sensor time when opened.<br>Use <b>Sync</b> under RTC to set the sensor from the phone clock.<br>BLE LOG shows <b>commands you send</b>, <b>alerts</b>, and <b>[dbg]</b> lines (v1.2.44+: notify chunk size, partial buffer length, CR count, each completed RX line, TX writes, pullCfg/pullRtc steps, pending read/time resolution) for side‑by‑side compare with ESP USB Serial.</div></div>
       <div class="card"><div class="ch"><div class="cl">LONG-TERM HISTORY</div></div><div style="font-size:10px;line-height:1.7;color:var(--tx)">NVS <code>history</code> on the ESP32 holds litres + run counts plus the last 5 Recent Runs and last 5 Event Logs. Opening History sends <code>history</code>; the ESP replies <code>WF HT</code> with totals, then <code>WF RH</code>/<code>WF EH</code> rows. <b>CLEAR STORED</b> sends <code>clear history</code> (reply <code>OK history cleared</code>).</div></div>
     </div>
   </div>
@@ -533,7 +534,7 @@ function doReset(){if(!confirm('Reset ALL settings to factory defaults?\n\nThis 
 // --- Manual water + RTC: commands mirror RxCallbacks on receiver ---
 function manualWaterOn(){if(S.masterShutoff){log('Pump locked — tap SYSTEM RESUME in Settings first.',false,true);return;}S.waterDuration=S.working.MANUAL_WATERING_DURATION||60000;S.cool=false;S.coolSec=0;setPumpState({pump:true,mode:'RUNNING',startNow:true,durationMs:S.waterDuration});sendCmd('water on');scheduleUiFlush({sparks:true});}
 function manualWaterOff(){setPumpState({pump:false,mode:'IDLE',durationMs:0});S.waterStartedAt=0;S.cool=true;S.coolSec=Math.floor((S.working.WATERING_COOLDOWN||1800000)/1000);sendCmd('water off');pullHistoryIfHistTabVisible();scheduleUiFlush({sparks:true});}
-function syncRtcNow(){const now=new Date();sendCmd('set time '+now.getFullYear()+' '+(now.getMonth()+1)+' '+now.getDate()+' '+now.getHours()+' '+now.getMinutes()+' '+now.getSeconds());log('RTC synced to phone time',true);}
+function syncRtcNow(){const now=new Date();sendCmd('set time '+now.getFullYear()+' '+(now.getMonth()+1)+' '+now.getDate()+' '+now.getHours()+' '+now.getMinutes()+' '+now.getSeconds());log('RTC synced from phone',true);}
 // --- BLE activity log (trimmed ring) ---
 function log(msg,hl,er){const el=document.getElementById('blog'),t=new Date().toTimeString().slice(0,8),d=document.createElement('div');d.className='le'+(er?' er':hl?' hl':'');d.innerHTML='<span class="lt">'+t+' </span>'+msg;el.appendChild(d);while(el.children.length>BLE_LOG_MAX)el.removeChild(el.firstChild);el.scrollTop=el.scrollHeight;}
 function showScr(name,title){document.querySelectorAll('.scr').forEach(s=>s.classList.remove('on'));document.querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));document.getElementById('scr-'+name).classList.add('on');document.getElementById('tab-'+name).classList.add('on');document.getElementById('stitle').textContent=title;if(name==='hist'){syncHistBleBtns();if(S.conn)sendCmd('history');}if(name==='cfg'){renderCfg();if(S.conn)(async()=>{try{await new Promise(r=>setTimeout(r,80));await pullCfgFromEsp(!S.configLoaded);await new Promise(r=>setTimeout(r,100));await pullRtcFromEsp();if(S.conn&&rxC)sendCmd('status');}catch(e){log('Settings refresh '+e.message,false,true);}})();}}
