@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!--
-  CURRENT BUILD VERSION: v1.2.42-field
+  CURRENT BUILD VERSION: v1.2.43-field
   Field build: Text BLE — read 0..15, time, status, history, water, set, save, reset, clear history; Settings toggles master shutoff hold/release (pump LOCKED until SYSTEM RESUME). ESP: V + WF_* + SOIL/FLOW + WF HT snapshot + persisted WF RH/WF EH rows; live WF RR/WF EV catches/faults; status/config may arrive as one notify (multiple LF-separated lines).
   History tab: opening History sends history (WF HT); CLEAR STORED → clear history. Receiver: ESP32_Now_Protocol_Recieve/ESP32_Now_Protocol_Recieve.ino (Arduino IDE).
 -->
@@ -194,7 +194,7 @@ canvas{display:block;width:100%;height:100%}
 <div id="app">
   <div id="hdr">
     <div class="hd-top">
-      <div class="hd-path">WHITE_FOX_CABIN / IRRIGATION <span style="color:#fff;font-size:11px;margin-left:8px;font-weight:bold">v1.2.42</span></div>
+      <div class="hd-path">WHITE_FOX_CABIN / IRRIGATION <span style="color:#fff;font-size:11px;margin-left:8px;font-weight:bold">v1.2.43</span></div>
       <div class="hd-ble" onclick="toggleBle()"><div class="ble-dot" id="bdot"></div><span id="blbl">CONNECT</span></div>
     </div>
     <div class="hd-bot"><div class="hd-title" id="stitle">Dashboard</div><div class="hd-clk" id="clk">--:--:--</div></div>
@@ -281,7 +281,7 @@ canvas{display:block;width:100%;height:100%}
       <div class="card"><div class="ch"><div class="cl">TIME WINDOW</div></div><div style="font-size:10px;line-height:1.7;color:var(--tx)">Use 24-hour values.<br>Examples: 07 = 7am, 14 = 2pm.<br>For 11am to 2pm set:<br><b>05 WATER WINDOW START = 11</b><br><b>06 WATER WINDOW END = 14</b></div></div>
       <div class="card"><div class="ch"><div class="cl">SETTINGS WORKFLOW</div></div><div style="font-size:10px;line-height:1.7;color:var(--tx)">Change values in Settings list -> values are temporary in RAM.<br>Tap <b>SAVE CONFIG</b> to persist through reboot/power loss.<br><b>FACTORY RESET</b> restores compile-time defaults to RAM; save to persist.</div></div>
       <div class="card"><div class="ch"><div class="cl">KEY VALUES</div></div><div style="font-size:10px;line-height:1.7;color:var(--tx)"><b>04 MOISTURE THRESHOLD PERCENT</b>: normal dry trigger<br><b>07 EMERGENCY THRESHOLD PERCENT</b>: critical dry trigger (must be lower than #4)<br><b>01 WATERING DURATION</b>: auto run time<br><b>02 WATERING COOLDOWN</b>: lockout after run<br><b>03 MANUAL WATERING DURATION</b>: WATER ON run time</div></div>
-      <div class="card"><div class="ch"><div class="cl">RTC + LOG</div></div><div style="font-size:10px;line-height:1.7;color:var(--tx)">Settings screen auto-refreshes sensor time when opened.<br>Use <b>SYNC SENSOR TO PHONE TIME</b> to set RTC quickly.<br>BLE LOG shows <b>commands you send</b>, <b>alerts</b>, and <b>[dbg]</b> lines (v1.2.42+: notify chunk size, partial buffer length, CR count, each completed RX line, TX writes, pullCfg/pullRtc steps, pending read/time resolution) for side‑by‑side compare with ESP USB Serial.</div></div>
+      <div class="card"><div class="ch"><div class="cl">RTC + LOG</div></div><div style="font-size:10px;line-height:1.7;color:var(--tx)">Settings screen auto-refreshes sensor time when opened.<br>Use <b>SYNC SENSOR TO PHONE TIME</b> to set RTC quickly.<br>BLE LOG shows <b>commands you send</b>, <b>alerts</b>, and <b>[dbg]</b> lines (v1.2.43+: notify chunk size, partial buffer length, CR count, each completed RX line, TX writes, pullCfg/pullRtc steps, pending read/time resolution) for side‑by‑side compare with ESP USB Serial.</div></div>
       <div class="card"><div class="ch"><div class="cl">LONG-TERM HISTORY</div></div><div style="font-size:10px;line-height:1.7;color:var(--tx)">NVS <code>history</code> on the ESP32 holds litres + run counts plus the last 5 Recent Runs and last 5 Event Logs. Opening History sends <code>history</code>; the ESP replies <code>WF HT</code> with totals, then <code>WF RH</code>/<code>WF EH</code> rows. <b>CLEAR STORED</b> sends <code>clear history</code> (reply <code>OK history cleared</code>).</div></div>
     </div>
   </div>
@@ -292,10 +292,10 @@ canvas{display:block;width:100%;height:100%}
 <script>
 /* =============================================================================
  * Field build: text only. Config read 0..15; RTC; live dash polls `status` (WF_*). Master shutoff toggle. History: open tab → `history` / WF HT + WF RH/WF EH persisted rows; live updates from WF RR/WF EV/WF IF.
- * Set BLE_DEBUG=0 to hide [dbg] lines and trim log to 40 rows again.
+ * BLE_DEBUG: add ?debug to the page URL for verbose [dbg] lines and a larger log cap.
  * ============================================================================= */
 window.onerror=function(msg,src,line){const em=document.getElementById('err-msg');if(em)em.textContent=msg+' (line '+line+')';return false;};
-const BLE_DEBUG=1;
+const BLE_DEBUG=(typeof location!=='undefined'&&/(?:^|[?&])debug(?:=|&|$)/i.test(location.search||''));
 const BLE_LOG_MAX=BLE_DEBUG?120:40;
 let _bleRxLineSeq=0;
 function dbg(m){if(!BLE_DEBUG)return;log('[dbg] '+m,false,false);}
@@ -304,10 +304,10 @@ const hist={soil:[],flow:[]};
 // --- Web Bluetooth GATT objects + modal edit index ---
 let dev=null,srv=null,txC=null,rxC=null,editN=null;
 // --- Stale detection + ring buffer caps for phone spark data ---
-const SOIL_SPARK_MAX=2880,FLOW_SPARK_MAX=86400;
+const SOIL_SPARK_MAX=2880,FLOW_SPARK_MAX=2880;
 // --- SCHEMA: index n and keys must match bleSendConfigs / resolveSettingKey in firmware ---
 const SCHEMA=[{n:1,k:'WATERING_DURATION',d:'Auto cycle on-time',f:fmin,ms:true,adv:false},{n:2,k:'WATERING_COOLDOWN',d:'Wait after watering',f:fmin,ms:true,adv:false},{n:3,k:'MANUAL_WATERING_DURATION',d:'BLE manual on-time',f:fmin,ms:true,adv:false},{n:4,k:'MOISTURE_THRESHOLD_PERCENT',d:'Normal trigger %. Below=water',f:v=>v+'%',adv:false},{n:5,k:'WATER_WINDOW_START',d:'Allowed hours start (0-23)',f:v=>pad(v)+':00',adv:false},{n:6,k:'WATER_WINDOW_END',d:'Allowed hours end (0-23)',f:v=>pad(v)+':00',adv:false},{n:7,k:'EMERGENCY_THRESHOLD_PERCENT',d:'Water anytime below this %',f:v=>v+'%',adv:false},{n:8,k:'WET_ADC',d:'Sensor ADC saturated (calibrate)',f:String,adv:true},{n:9,k:'DRY_ADC',d:'Sensor ADC dry air (calibrate)',f:String,adv:true},{n:10,k:'SOIL_SMOOTHING_FACTOR',d:'Soil smoothing 1-100 (100=raw)',f:String,adv:true},{n:11,k:'FLOW_SMOOTHING_FACTOR',d:'Flow smoothing 1-100 (100=raw)',f:String,adv:true},{n:12,k:'FLOW_PULSE',d:'Pulse scaling (window rate + run litres÷60 on ESP)',f:String,adv:true},{n:13,k:'FLOW_WINDOW',d:'Pulse counting window ms',f:String,adv:true},{n:14,k:'PHONE_NOTIFICATION_DELAY',d:'BLE report rate ms',f:String,adv:true},{n:15,k:'FLOW_CHECK_ENABLED',d:'Low-flow pump guard (0=off dry test, 1=on)',f:v=>(+v===1?'ON':'OFF'),adv:true}];
-const CFG_ORDER=['WATERING_DURATION','WATERING_COOLDOWN','MANUAL_WATERING_DURATION','MOISTURE_THRESHOLD_PERCENT','WATER_WINDOW_START','WATER_WINDOW_END','EMERGENCY_THRESHOLD_PERCENT','WET_ADC','DRY_ADC','SOIL_SMOOTHING_FACTOR','FLOW_SMOOTHING_FACTOR','FLOW_PULSE','FLOW_WINDOW','PHONE_NOTIFICATION_DELAY','FLOW_CHECK_ENABLED'];
+const CFG_ORDER=SCHEMA.map(s=>s.k);
 let lastDash=null;
 let recentRunPending=null;
 function fmin(v){v=Number(v);const min=v/60000;if(min>=60)return(min/60).toFixed(2)+'h ('+min.toFixed(0)+'min)';if(min===Math.floor(min))return min+'min';return min.toFixed(1)+'min';}
@@ -322,6 +322,7 @@ function setPumpState({pump,mode,startNow=false,durationMs=null}){S.pump=!!pump;
 let liveStatusTimer=null;
 function stopLivePoll(){if(liveStatusTimer){clearInterval(liveStatusTimer);liveStatusTimer=null;}}
 function startLivePoll(){stopLivePoll();if(!S.conn||!rxC)return;const iv=Math.max(1500,Math.min(60000,Number(S.working.PHONE_NOTIFICATION_DELAY)||2000));liveStatusTimer=setInterval(()=>{if(S.conn&&rxC)sendCmd('status');},iv);}
+function getBleCmdGapMs(){return Math.max(120,Math.min(400,Math.floor((Number(S.working.PHONE_NOTIFICATION_DELAY)||2000)*0.08)));}
 async function attachBleFromDevice(chosen){dev=chosen;dev.addEventListener('gattserverdisconnected',onDC);dbg('connect: request GATT');srv=await dev.gatt.connect();dbg('connect: GATT ok');try{if(typeof srv.requestMTU==='function'){await srv.requestMTU(247);dbg('connect: MTU 247');}}catch(_){dbg('connect: MTU skip');}const svc=await srv.getPrimaryService(SVC);txC=await svc.getCharacteristic(TXU);rxC=await svc.getCharacteristic(RXU);await txC.startNotifications();txC.addEventListener('characteristicvaluechanged',onNotify);buf='';_bleRxLineSeq=0;setConn(true);document.getElementById('overlay').classList.add('hide');document.getElementById('err-msg').textContent='';log('BLE connected.',true);(async()=>{try{dbg('post-connect: wait 400ms');await new Promise(r=>setTimeout(r,400));dbg('post-connect: pullCfg');await pullCfgFromEsp(true);dbg('post-connect: wait 100ms');await new Promise(r=>setTimeout(r,100));dbg('post-connect: pullRtc');await pullRtcFromEsp();if(S.conn&&rxC){dbg('post-connect: status');sendCmd('status');}startLivePoll();scheduleUiFlush({sparks:true});dbg('post-connect: done');}catch(e){log('post-connect '+e.message,false,true);dbg('post-connect FAIL '+e.message);}})();}
 function connectBleErr(em,e){const raw=e&&(e.message||String(e))||'Connection failed',low=raw.toLowerCase();let ui=raw;if(low.includes('no compatible')||e.name==='NotFoundError')ui='No compatible device found. Check ESP32 power + Chrome + BT + Location.';else if(low.includes('cancel')||low.includes('chooser'))ui='Picker closed — pick WhiteFox Irrigation from the list.';else if(low.includes('gatt')||low.includes('service'))ui='Wrong device selected. Choose WhiteFox Irrigation.';em.textContent=ui;log('Error: '+raw,false,true);}
 async function connectBle(){const em=document.getElementById('err-msg');em.textContent='Scanning…';try{const chosen=await navigator.bluetooth.requestDevice({filters:[{name:'WhiteFox Irrigation'},{namePrefix:'WhiteFox'},{services:[SVC]}],optionalServices:[SVC,RXU,TXU]});await attachBleFromDevice(chosen);}catch(e){connectBleErr(em,e);}}
@@ -329,19 +330,19 @@ async function toggleBle(){if(S.conn){if(dev&&dev.gatt.connected)dev.gatt.discon
 function onDC(){S.masterShutoff=false;stopLivePoll();if(pendingRtcGrab||pendingReadVal||pendingRtcRead)dbg('disconnect: clearing pendings');if(pendingRtcGrab){clearTimeout(pendingRtcGrab.tm);pendingRtcGrab.rej(new Error('disconnect'));pendingRtcGrab=null;}if(pendingReadVal){clearTimeout(pendingReadVal.tm);pendingReadVal.rej(new Error('disconnect'));pendingReadVal=null;}if(pendingRtcRead){clearTimeout(pendingRtcRead.tm);pendingRtcRead.rej(new Error('disconnect'));pendingRtcRead=null;}buf='';setConn(false);log('Disconnected',false,true);cmdQueue.length=0;cmdInFlight=false;recentRunPending=null;document.getElementById('overlay').classList.remove('hide');document.querySelectorAll('.scr').forEach(s=>s.classList.add('banner-pad'));setPumpState({pump:false,mode:'UNKNOWN',durationMs:0});S.flow=0;dash();}
 function setConn(v){S.conn=v;document.getElementById('bdot').className='ble-dot'+(v?' on':'');document.getElementById('blbl').textContent=v?'BLE LINK':'CONNECT';if(v){S.masterShutoff=false;S.configLoaded=false;S.savePending=false;S.dirty={};document.getElementById('overlay').classList.add('hide');document.querySelectorAll('.scr').forEach(s=>s.classList.remove('banner-pad'));}else{stopLivePoll();S.configLoaded=false;S.savePending=false;}syncMsoBtn();syncHistBleBtns();renderCfg();}
 // --- Outbound command queue: avoids overlapping GATT writes (gap helps Android) ---
-const BLE_CMD_GAP_MS=155,cmdQueue=[];let cmdInFlight=false;
+const cmdQueue=[];let cmdInFlight=false;
 function isQuietPollCmd(cmd){const t=cmd.trim();return/^read\s/i.test(t)||/^status$/i.test(t)||/^history$/i.test(t);}
-async function processCmdQueue(){if(cmdInFlight||!cmdQueue.length||!rxC)return;cmdInFlight=true;try{await new Promise(r=>setTimeout(r,BLE_CMD_GAP_MS));const cmd=cmdQueue.shift();const payload=cmd+'\n';const enc=new TextEncoder().encode(payload);await rxC.writeValue(enc);if(BLE_DEBUG)dbg('TX write ok bytes='+enc.length+' cmd='+JSON.stringify(cmd));if(!isQuietPollCmd(cmd))log('→ '+cmd);}catch(e){log('Send err: '+e.message,false,true);dbg('TX write FAIL '+e.message);}finally{cmdInFlight=false;if(cmdQueue.length)setTimeout(processCmdQueue,BLE_CMD_GAP_MS);}}
+async function processCmdQueue(){if(cmdInFlight||!cmdQueue.length||!rxC)return;cmdInFlight=true;const gap=getBleCmdGapMs();try{await new Promise(r=>setTimeout(r,gap));const cmd=cmdQueue.shift();const payload=cmd+'\n';const enc=new TextEncoder().encode(payload);await rxC.writeValue(enc);if(BLE_DEBUG)dbg('TX write ok bytes='+enc.length+' cmd='+JSON.stringify(cmd));if(!isQuietPollCmd(cmd))log('→ '+cmd);}catch(e){log('Send err: '+e.message,false,true);dbg('TX write FAIL '+e.message);}finally{cmdInFlight=false;if(cmdQueue.length)setTimeout(processCmdQueue,getBleCmdGapMs());}}
 async function sendCmd(cmd){if(!rxC){log('Not connected',false,true);return;}cmdQueue.push(cmd);processCmdQueue();}
 let pendingRtcGrab=null,pendingReadVal=null,pendingRtcRead=null;
-const _bleCfgRtcQueue=(()=>{let c=Promise.resolve();return{enqueue(fn){c=c.then(()=>fn()).catch(()=>{});return c;}}})();
+const _bleCfgRtcQueue=(()=>{let c=Promise.resolve();return{enqueue(fn){c=c.then(()=>fn()).catch(e=>{if(!S.conn)return;const msg=String(e&&(e.message||e)||'');if(BLE_DEBUG)dbg('cfg/rtc queue '+msg);else log('cfg/rtc queue '+msg,false,true);});return c;}}})();
 const READ_ROW_MS=10000;
-function parseLegacyCfgScalar(n,raw){if(raw==null||raw==='')return 0;const s0=String(raw).trim().replace(/%$/,'');if(n===5||n===6){const p=s0.split(':');return parseInt(p[0]||'0',10)||0;}const x=parseFloat(String(s0).replace(',','.'));if(!Number.isFinite(x))return 0;if(n===4||n===7||n===8||n===9||n===15)return Math.round(x);return x;}
+function parseLegacyCfgScalar(n,raw){if(raw==null||raw==='')return null;const s0=String(raw).trim().replace(/%$/,'');if(n===5||n===6){const p=s0.split(':');const h=parseInt(p[0]||'',10);return Number.isFinite(h)?h:null;}const x=parseFloat(String(s0).replace(',','.'));if(!Number.isFinite(x))return null;if(n===4||n===7||n===8||n===9||n===15)return Math.round(x);return x;}
 function clearAllBlePullPendings(){let n=0;if(pendingRtcGrab)n++;if(pendingReadVal)n++;if(pendingRtcRead)n++;if(n&&BLE_DEBUG)dbg('pendings supersede n='+n);if(pendingRtcGrab){clearTimeout(pendingRtcGrab.tm);pendingRtcGrab.rej(new Error('superseded'));pendingRtcGrab=null;}if(pendingReadVal){clearTimeout(pendingReadVal.tm);pendingReadVal.rej(new Error('superseded'));pendingReadVal=null;}if(pendingRtcRead){clearTimeout(pendingRtcRead.tm);pendingRtcRead.rej(new Error('superseded'));pendingRtcRead=null;}}
 function startPendingRtcGrab(timeoutMs){return new Promise((res,rej)=>{clearAllBlePullPendings();const tm=setTimeout(()=>{const g=pendingRtcGrab;if(!g)return;pendingRtcGrab=null;g.rej(new Error('time cmd timeout'));},timeoutMs);pendingRtcGrab={res,rej,tm};sendCmd('time');});}
 function startReadVal(idx){return new Promise((res,rej)=>{clearAllBlePullPendings();const tm=setTimeout(()=>{const g=pendingReadVal;if(!g||g.idx!==idx)return;pendingReadVal=null;g.rej(new Error('read '+idx+' timeout'));},READ_ROW_MS);pendingReadVal={res,rej,tm,idx};sendCmd('read '+idx);});}
 function startReadRtc(){return new Promise((res,rej)=>{clearAllBlePullPendings();const tm=setTimeout(()=>{const g=pendingRtcRead;if(!g)return;pendingRtcRead=null;g.rej(new Error('rtc read timeout'));},READ_ROW_MS);pendingRtcRead={res,rej,tm};sendCmd('read rtc');});}
-async function pullCfgFromEsp(force){return _bleCfgRtcQueue.enqueue(async()=>{if(!S.conn||!rxC)return;if(force){S.configLoaded=false;S.working={};S.persistent={};S.dirty={};renderCfg();}dbg('pullCfg start force='+(force?'1':'0'));try{dbg('pullCfg read 0');await startReadVal(0);for(let i=1;i<=15;i++){dbg('pullCfg read '+i);const raw=await startReadVal(i);const k=CFG_ORDER[i-1];S.working[k]=parseLegacyCfgScalar(i,raw);S.persistent[k]=S.working[k];}S.configLoaded=true;renderCfg();log('Config loaded (read 0..15)',true);stopLivePoll();startLivePoll();dbg('pullCfg ok');}catch(e){if(!S.conn)return;log('cfg pull '+e.message,false,true);dbg('pullCfg FAIL '+e.message);S.configLoaded=false;renderCfg();}});}
+async function pullCfgFromEsp(force){return _bleCfgRtcQueue.enqueue(async()=>{if(!S.conn||!rxC)return;if(force){S.configLoaded=false;S.working={};S.persistent={};S.dirty={};renderCfg();}dbg('pullCfg start force='+(force?'1':'0'));try{dbg('pullCfg read 0');await startReadVal(0);for(let i=1;i<=15;i++){dbg('pullCfg read '+i);const raw=await startReadVal(i);const k=CFG_ORDER[i-1];const pv=parseLegacyCfgScalar(i,raw);if(pv===null){dbg('pullCfg parse fail idx='+i+' raw='+JSON.stringify(String(raw).slice(0,48)));}else{S.working[k]=pv;S.persistent[k]=pv;}}S.configLoaded=true;renderCfg();log('Config loaded (read 0..15)',true);stopLivePoll();startLivePoll();dbg('pullCfg ok');}catch(e){if(!S.conn)return;log('cfg pull '+e.message,false,true);dbg('pullCfg FAIL '+e.message);S.configLoaded=false;renderCfg();}});}
 async function pullRtcFromEsp(){return _bleCfgRtcQueue.enqueue(async()=>{if(!S.conn){log('Not connected',false,true);return;}dbg('pullRtc: time cmd');try{const rtc=await startPendingRtcGrab(22000);setRtc(rtc);log('RTC ok (time)',true);dbg('pullRtc ok (time)');}catch(e1){if(!S.conn)return;dbg('pullRtc time fail: '+e1.message+' → read rtc');try{setRtc(await startReadRtc());log('RTC ok (read rtc)',true);dbg('pullRtc ok (read rtc)');}catch(e2){if(!S.conn)return;log('RTC pull '+e1.message+' / '+e2.message,false,true);dbg('pullRtc FAIL '+e2.message);}}});}
 function setRtc(s){if(!s)return;S.rtc=s;S.rtcReceivedAt=Date.now();const el=document.getElementById('rtcdisp');if(el)el.textContent=s;}
 // --- History tab: WF HT line from ESP; CLEAR → OK history cleared ---
@@ -353,20 +354,162 @@ function fmtUnixMdHm(u){const n=Number(u)||0;if(n<=0)return'-- --:--';const d=ne
 function fmtUnixHm(u){const n=Number(u)||0;if(n<=0)return'--:--';const d=new Date(n*1000);return d.toTimeString().slice(0,5);}
 function fmtUnixMdHms(u){const n=Number(u)||0;if(n<=0)return'-- --:--:--';const d=new Date(n*1000);return fmtMdHms(d);}
 function fmtUnixHms(u){const n=Number(u)||0;if(n<=0)return'--:--:--';const d=new Date(n*1000);return d.toTimeString().slice(0,8);}
-function isRunEndError(tag){const t=String(tag||'').replace(/[^A-Za-z0-9]/g,'').toUpperCase();return t.includes('PUMPINITIATIONFAILURE')||t.includes('FAILTOSTARTPUMP')||t.includes('FLOWINTERRUPTED')||t.includes('UNWATEDFLOWDETECTED')||t.includes('FAULT')||t.includes('ERROR')||t.includes('IMPROPER');}
+function isRunEndError(tag){const t=String(tag||'').replace(/[^A-Za-z0-9]/g,'').toUpperCase();return t.includes('PUMPINITIATIONFAILURE')||t.includes('FAILTOSTARTPUMP')||t.includes('FLOWINTERRUPTED')||t.includes('UNWANTEDFLOWDETECTED')||t.includes('UNWATEDFLOWDETECTED')||t.includes('FAULT')||t.includes('ERROR')||t.includes('IMPROPER');}
 function resetRecentRunsBox(){const box=document.getElementById('h-recent-box');if(!box)return;box.innerHTML='<div class="evm" id="h-recent-hint">No runs yet.<br><span style="font-size:9px;letter-spacing:.02em">a row is added when watering stops</span></div>';}
 function resetEventLogBox(){const box=document.getElementById('h-event-box');if(!box)return;box.innerHTML='<div class="evm" id="h-event-hint">No events yet.<br><span style="font-size:9px;letter-spacing:.02em">flow faults, improper flow, and controller catches show here</span></div>';}
 function appendRecentRunRow(startStamp,startTrigger,endTime,litres,endTrigger){const box=document.getElementById('h-recent-box');if(!box)return;const hint=document.getElementById('h-recent-hint');if(hint)hint.remove();const row=document.createElement('div');row.className='hrr';const t=document.createElement('span');t.className='hrr-t';t.textContent=String(startStamp||fmtMdHms(new Date()));const ty=document.createElement('span');ty.className='hrr-type';ty.textContent=fmtRunEndLabel(String(startTrigger||'Run'));const m=document.createElement('span');m.className='hrr-meta';const l=Number.parseFloat(litres);const lit=Number.isFinite(l)?l.toFixed(2):'0.00';const closeTag=endTrigger||'Done';const closeEl=document.createElement('span');closeEl.className=isRunEndError(closeTag)?'hrr-end-err':'hrr-end-ok';closeEl.textContent=fmtRunEndLabel(closeTag);m.append(String(endTime||new Date().toTimeString().slice(0,8))+' · '+lit+' L · ');m.appendChild(closeEl);row.appendChild(t);row.appendChild(ty);row.appendChild(m);box.insertBefore(row,box.firstChild);while(box.childElementCount>10)box.removeChild(box.lastChild);}
 function appendEventRow(msg,id,timeStamp){const box=document.getElementById('h-event-box');if(!box||!msg)return;const hint=document.getElementById('h-event-hint');if(hint)hint.remove();const row=document.createElement('div');row.className='her';const t=document.createElement('span');t.className='her-t';t.textContent=timeStamp||fmtMdHm(new Date());const m=document.createElement('span');m.className='her-msg';m.textContent=String(msg);const i=document.createElement('span');i.className='her-id';i.textContent=id?String(id):'';row.appendChild(t);row.appendChild(m);row.appendChild(i);box.insertBefore(row,box.firstChild);while(box.childElementCount>60)box.removeChild(box.lastChild);}
 function fmtRunEndLabel(s){return String(s||'').replace(/_/g,' ').replace(/([a-z])([A-Z])/g,'$1 $2').replace(/\b([a-z])/g,(m,p1)=>p1.toUpperCase());}
-function applyStatusLine(line){let m;if((m=line.match(/^WF HT:TL=([\d.]+) TF=([\d.]+) DL=([\d.]+) ML=([\d.]+) AR=(\d+) ER=(\d+) MR=(\d+)$/))){applyHistoryDom(m);recentRunPending=null;resetRecentRunsBox();resetEventLogBox();return true;}if((m=line.match(/^WF RH:SU=(\d+) EU=(\d+) RS=([A-Za-z0-9_]+) EK=([A-Za-z0-9_]+) DS=(\d+) L=([\d.]+)(?: CL=([A-Za-z0-9_]+))?$/))){appendRecentRunRow(fmtUnixMdHms(m[1]),m[3],fmtUnixHms(m[2]),m[6],m[7]||m[4]);return true;}if((m=line.match(/^WF RR:S:([A-Za-z0-9_]+)$/))){recentRunPending={stamp:fmtMdHms(new Date()),startTrigger:String(m[1])};return true;}if((m=line.match(/^WF RR:E:([A-Za-z0-9_]+):([A-Za-z0-9_]+):(\d+):([\d.]+)(?::([A-Za-z0-9_]+))?$/))){const nowT=new Date().toTimeString().slice(0,8);const st=recentRunPending&&recentRunPending.stamp?recentRunPending.stamp:fmtMdHms(new Date());const tr=recentRunPending&&recentRunPending.startTrigger?recentRunPending.startTrigger:m[1];appendRecentRunRow(st,tr,nowT,m[4],m[5]||m[2]);recentRunPending=null;return true;}if((m=line.match(/^WF EH:U=(\d+) M=(.*)$/))){appendEventRow(m[2]||'Event','#1',fmtUnixMdHm(m[1]));return true;}if((m=line.match(/^WF EV:([A-Za-z0-9_]+)(?::(.*))?$/))){const msg=(m[2]&&m[2].trim())?m[2].trim():fmtRunEndLabel(m[1]);appendEventRow(msg,'#1');return true;}if((m=line.match(/^WF IF:([A-Za-z0-9_]+)$/))){appendEventRow('Improper Flow: '+fmtRunEndLabel(m[1]),'#if');scheduleUiFlush();return true;}if((m=line.match(/^SOIL PCT:(-?\d+)$/))){const v=+m[1];S.soilPct=v>=0?v:null;if(!lastDash)lastDash={};lastDash.s=v>=0?v:-1;if(S.conn&&v>=0){hist.soil.push({t:Date.now(),v});if(hist.soil.length>SOIL_SPARK_MAX)hist.soil.shift();}scheduleUiFlush({sparks:true});return true;}if((m=line.match(/^SOIL ADC:(-?\d+)$/))){const v=+m[1];S.soilAdc=v>=0?v:null;if(!lastDash)lastDash={};lastDash.a=v;return true;}if((m=line.match(/^FLOW:([\d.]+)$/))){S.flow=parseFloat(m[1]);if(!Number.isFinite(S.flow))S.flow=0;if(!lastDash)lastDash={};lastDash.f=S.flow;lastDash.fl=S.flow>0.1?1:0;if(S.conn){hist.flow.push({t:Date.now(),v:S.flow});if(hist.flow.length>FLOW_SPARK_MAX)hist.flow.shift();}scheduleUiFlush({sparks:true});return true;}if((m=line.match(/^WF MS:([01])$/))){S.masterShutoff=m[1]==='1';if(S.masterShutoff){S.cool=false;S.coolSec=0;}if(!lastDash)lastDash={};lastDash.ms=S.masterShutoff?1:0;syncMsoBtn();scheduleUiFlush();return true;}if((m=line.match(/^WF SL:(ND|EMG|DRY|OK)$/))){if(!lastDash)lastDash={};lastDash.sl=m[1];return true;}if((m=line.match(/^WF THR:(\d+) EMG:(\d+) WS:(\d+) WE:(\d+) IW:([01])$/))){if(!lastDash)lastDash={};lastDash.thr=+m[1];lastDash.emg=+m[2];lastDash.ws=+m[3];lastDash.we=+m[4];lastDash.iw=+m[5];return true;}if((m=line.match(/^WF LKO:([01]) PV:([01]) MD:(IDL|RUN|EMG) RW:(\d+) CD:([01]) CS:(\d+) WM:(\d+)$/))){S.pump=m[2]==='1';const md=m[3];S.mode=md==='EMG'?'EMERGENCY':md==='RUN'?'RUNNING':'IDLE';if(!lastDash)lastDash={};Object.assign(lastDash,{lko:+m[1],pv:+m[2],md:md,rw:+m[4],cd:+m[5],cs:+m[6],wm:+m[7]});S.cool=m[5]==='1';S.coolSec=+m[6]||0;S.waterDuration=+m[7]||0;if(S.waterDuration&&S.pump&&+m[4])S.waterStartedAt=Date.now()-((S.waterDuration/1000)-(+m[4]))*1000;else if(!S.pump)S.waterStartedAt=0;if(S.masterShutoff){S.pump=false;S.mode='IDLE';S.waterStartedAt=0;S.cool=false;S.coolSec=0;Object.assign(lastDash,{pv:0,md:'IDL',rw:0,wm:0});}return true;}if((m=line.match(/^WF NX:(.*)$/))){if(!lastDash)lastDash={};lastDash.nx=m[1].trim();return true;}if((m=line.match(/^WF FL:([01])$/))){if(!lastDash)lastDash={};lastDash.fl=+m[1];return true;}if((m=line.match(/^WF RTC:(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})$/))){setRtc(m[1]);return true;}if(line==='WF RTC:')return true;return false;}
+const STATUS_LINE_HANDLERS = [
+  [/^WF HT:TL=([\d.]+) TF=([\d.]+) DL=([\d.]+) ML=([\d.]+) AR=(\d+) ER=(\d+) MR=(\d+)$/, (m) => {
+    applyHistoryDom(m);
+    recentRunPending = null;
+    resetRecentRunsBox();
+    resetEventLogBox();
+    return true;
+  }],
+  [/^WF RH:SU=(\d+) EU=(\d+) RS=([A-Za-z0-9_]+) EK=([A-Za-z0-9_]+) DS=(\d+) L=([\d.]+)(?: CL=([A-Za-z0-9_]+))?$/, (m) => {
+    appendRecentRunRow(fmtUnixMdHms(m[1]), m[3], fmtUnixHms(m[2]), m[6], m[7] || m[4]);
+    return true;
+  }],
+  [/^WF RR:S:([A-Za-z0-9_]+)$/, (m) => {
+    recentRunPending = { stamp: fmtMdHms(new Date()), startTrigger: String(m[1]) };
+    return true;
+  }],
+  [/^WF RR:E:([A-Za-z0-9_]+):([A-Za-z0-9_]+):(\d+):([\d.]+)(?::([A-Za-z0-9_]+))?$/, (m) => {
+    const nowT = new Date().toTimeString().slice(0, 8);
+    const st = recentRunPending && recentRunPending.stamp ? recentRunPending.stamp : fmtMdHms(new Date());
+    const tr = recentRunPending && recentRunPending.startTrigger ? recentRunPending.startTrigger : m[1];
+    appendRecentRunRow(st, tr, nowT, m[4], m[5] || m[2]);
+    recentRunPending = null;
+    return true;
+  }],
+  [/^WF EH:U=(\d+) M=(.*)$/, (m) => {
+    appendEventRow(m[2] || 'Event', '#1', fmtUnixMdHm(m[1]));
+    return true;
+  }],
+  [/^WF EV:([A-Za-z0-9_]+)(?::(.*))?$/, (m) => {
+    const msg = m[2] && m[2].trim() ? m[2].trim() : fmtRunEndLabel(m[1]);
+    appendEventRow(msg, '#1');
+    return true;
+  }],
+  [/^WF IF:([A-Za-z0-9_]+)$/, (m) => {
+    appendEventRow('Improper Flow: ' + fmtRunEndLabel(m[1]), '#if');
+    scheduleUiFlush();
+    return true;
+  }],
+  [/^SOIL PCT:(-?\d+)$/, (m) => {
+    const v = +m[1];
+    S.soilPct = v >= 0 ? v : null;
+    if (!lastDash) lastDash = {};
+    lastDash.s = v >= 0 ? v : -1;
+    if (S.conn && v >= 0) {
+      hist.soil.push({ t: Date.now(), v });
+      if (hist.soil.length > SOIL_SPARK_MAX) hist.soil.shift();
+    }
+    scheduleUiFlush({ sparks: true });
+    return true;
+  }],
+  [/^SOIL ADC:(-?\d+)$/, (m) => {
+    const v = +m[1];
+    S.soilAdc = v >= 0 ? v : null;
+    if (!lastDash) lastDash = {};
+    lastDash.a = v;
+    return true;
+  }],
+  [/^FLOW:([\d.]+)$/, (m) => {
+    S.flow = parseFloat(m[1]);
+    if (!Number.isFinite(S.flow)) S.flow = 0;
+    if (!lastDash) lastDash = {};
+    lastDash.f = S.flow;
+    lastDash.fl = S.flow > 0.1 ? 1 : 0;
+    if (S.conn) {
+      hist.flow.push({ t: Date.now(), v: S.flow });
+      if (hist.flow.length > FLOW_SPARK_MAX) hist.flow.shift();
+    }
+    scheduleUiFlush({ sparks: true });
+    return true;
+  }],
+  [/^WF MS:([01])$/, (m) => {
+    S.masterShutoff = m[1] === '1';
+    if (S.masterShutoff) {
+      S.cool = false;
+      S.coolSec = 0;
+    }
+    if (!lastDash) lastDash = {};
+    lastDash.ms = S.masterShutoff ? 1 : 0;
+    syncMsoBtn();
+    scheduleUiFlush();
+    return true;
+  }],
+  [/^WF SL:(ND|EMG|DRY|OK)$/, (m) => {
+    if (!lastDash) lastDash = {};
+    lastDash.sl = m[1];
+    return true;
+  }],
+  [/^WF THR:(\d+) EMG:(\d+) WS:(\d+) WE:(\d+) IW:([01])$/, (m) => {
+    if (!lastDash) lastDash = {};
+    lastDash.thr = +m[1];
+    lastDash.emg = +m[2];
+    lastDash.ws = +m[3];
+    lastDash.we = +m[4];
+    lastDash.iw = +m[5];
+    return true;
+  }],
+  [/^WF LKO:([01]) PV:([01]) MD:(IDL|RUN|EMG) RW:(\d+) CD:([01]) CS:(\d+) WM:(\d+)$/, (m) => {
+    S.pump = m[2] === '1';
+    const md = m[3];
+    S.mode = md === 'EMG' ? 'EMERGENCY' : md === 'RUN' ? 'RUNNING' : 'IDLE';
+    if (!lastDash) lastDash = {};
+    Object.assign(lastDash, { lko: +m[1], pv: +m[2], md, rw: +m[4], cd: +m[5], cs: +m[6], wm: +m[7] });
+    S.cool = m[5] === '1';
+    S.coolSec = +m[6] || 0;
+    S.waterDuration = +m[7] || 0;
+    if (S.waterDuration && S.pump && +m[4]) S.waterStartedAt = Date.now() - ((S.waterDuration / 1000) - +m[4]) * 1000;
+    else if (!S.pump) S.waterStartedAt = 0;
+    if (S.masterShutoff) {
+      S.pump = false;
+      S.mode = 'IDLE';
+      S.waterStartedAt = 0;
+      S.cool = false;
+      S.coolSec = 0;
+      Object.assign(lastDash, { pv: 0, md: 'IDL', rw: 0, wm: 0 });
+    }
+    return true;
+  }],
+  [/^WF NX:(.*)$/, (m) => {
+    if (!lastDash) lastDash = {};
+    lastDash.nx = m[1].trim();
+    return true;
+  }],
+  [/^WF FL:([01])$/, (m) => {
+    if (!lastDash) lastDash = {};
+    lastDash.fl = +m[1];
+    return true;
+  }],
+  [/^WF RTC:(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})$/, (m) => {
+    setRtc(m[1]);
+    return true;
+  }],
+];
+
+function applyStatusLine(line) {
+  for (let i = 0; i < STATUS_LINE_HANDLERS.length; i++) {
+    const pair = STATUS_LINE_HANDLERS[i];
+    const m = line.match(pair[0]);
+    if (m) return pair[1](m);
+  }
+  if (line === 'WF RTC:') return true;
+  return false;
+}
+
 function dispatchBleLine(line){const s=line.trim();if(!s)return;if(s[0]==='{'||s[0]==='H')return;if(/^WF ST:/i.test(s))return;if(BLE_DEBUG){_bleRxLineSeq++;const prev=s.length>72?s.slice(0,72)+'…':s;dbg('RX#'+_bleRxLineSeq+' len='+s.length+' '+JSON.stringify(prev));}parseLineLegacy(s);}
 // --- UI flush: coalesce parseLine-driven DOM work to one rAF (BLE bursts e.g. stats) ---
 const _uiFlush={raf:0,sparks:false};
 function scheduleUiFlush(opts){if(opts&&opts.sparks)_uiFlush.sparks=true;if(_uiFlush.raf)return;_uiFlush.raf=requestAnimationFrame(runUiFlush);}
 function runUiFlush(){_uiFlush.raf=0;dash();const n=Date.now();if(_uiFlush.sparks){if(!dash._lastSparkMs||n-dash._lastSparkMs>=250){dash._lastSparkMs=n;drawSparks();}_uiFlush.sparks=false;}}
 // --- Notify: newline-terminated text (status WF_* lines, V read replies, acks) ---
-let buf='';function onNotify(e){const chunk=new TextDecoder().decode(e.target.value);buf+=chunk;const lines=buf.split('\n');buf=lines.pop()||'';if(BLE_DEBUG&&chunk.length){const cr=(chunk.match(/\r/g)||[]).length;dbg('notify chunkBytes='+chunk.length+' completeLines='+lines.length+' partialBufLen='+buf.length+' CRcount='+cr);}lines.forEach(dispatchBleLine);}
+const bleTextDecoder=new TextDecoder();let buf='';function onNotify(e){const chunk=bleTextDecoder.decode(e.target.value);buf+=chunk;const lines=buf.split('\n');buf=lines.pop()||'';if(BLE_DEBUG&&chunk.length){const cr=(chunk.match(/\r/g)||[]).length;dbg('notify chunkBytes='+chunk.length+' completeLines='+lines.length+' partialBufLen='+buf.length+' CRcount='+cr);}lines.forEach(dispatchBleLine);}
 function handleConfigLine(line){if(line==='Saved to persistent storage'){Object.assign(S.persistent,S.dirty);S.dirty={};S.savePending=false;renderCfg();log(line,true);pullCfgFromEsp(false).catch(()=>{});scheduleUiFlush({sparks:true});return true;}if(line==='Factory defaults loaded (RAM only)'){S.savePending=false;log(line,true);pullCfgFromEsp(true).catch(()=>{});return true;}return false;}
 function handleHistoryLine(line){const t=String(line).trim();if(/^OK history cleared$/i.test(t)){fillHistoryTiles(0,0,0,0,0,0,0);recentRunPending=null;resetRecentRunsBox();resetEventLogBox();log(t,true);return true;}return false;}
 function clearStoredHistory(){if(!S.conn){log('Not connected',false,true);return;}if(!confirm('Clear all stored history on the ESP32?\n\nZeros total litres, lifetime flow, daily/monthly accumulators, and auto / emergency / manual run counts in NVS. This cannot be undone.'))return;sendCmd('clear history');}
@@ -383,7 +526,7 @@ function sparkline(id,data,col,lo,hi){const c=document.getElementById(id);if(!c)
 function syncAdvToggleUI(){const sec=document.getElementById('advsec'),btn=document.getElementById('advToggle');if(!sec||!btn)return;sec.className='advsec'+(S.advOpen?' open':'');btn.setAttribute('aria-expanded',S.advOpen?'true':'false');btn.textContent=S.advOpen?'▲ advanced':'▼ advanced';}
 function renderCfg(){renderList('cml',SCHEMA.filter(s=>!s.adv));renderList('cal',SCHEMA.filter(s=>s.adv));syncAdvToggleUI();const hd=Object.keys(S.dirty).length>0,sb=document.getElementById('savebar');if(!S.configLoaded)sb.textContent='· WAITING FOR ESP32 CONFIG';else if(S.savePending)sb.textContent='· SAVING TO ESP32...';else sb.textContent=hd?'▲ SAVE CONFIG — unsaved changes':'· NO CHANGES TO SAVE';sb.className='savebar'+(hd&&!S.savePending&&S.configLoaded?' has':'');syncMsoBtn();}
 function syncMsoBtn(){const b=document.getElementById('btnMso');if(!b)return;b.disabled=!S.conn;const on=!!S.masterShutoff;b.textContent=on?'SYSTEM RESUME':'MASTER SHUTOFF';b.classList.toggle('active',on);b.classList.toggle('resume',on);}
-function masterShutoffToggle(e){e.preventDefault();if(!S.conn){log('Connect BLE first',false,true);return;}if(S.masterShutoff){sendCmd('master shutoff release');S.masterShutoff=false;}else{sendCmd('master shutoff hold');S.masterShutoff=true;}if(!lastDash)lastDash={};lastDash.ms=S.masterShutoff?1:0;syncMsoBtn();scheduleUiFlush();}
+function masterShutoffToggle(e){e.preventDefault();if(!S.conn){log('Connect BLE first',false,true);return;}if(S.masterShutoff){sendCmd('master shutoff release');}else{sendCmd('master shutoff hold');}log('Master shutoff command sent — waiting for WF MS…',false,false);}
 function renderList(id,sch){document.getElementById(id).innerHTML=sch.map(s=>{const working=S.working[s.k],persistent=S.persistent[s.k],hasWorking=working!==undefined&&working!==null,hasPersistent=persistent!==undefined&&persistent!==null,isDirty=S.dirty[s.k]!==undefined,isUnsaved=(hasWorking&&hasPersistent)?(working!==persistent):false,dv=hasWorking?s.f(working):'—',pv=hasPersistent?s.f(persistent):'—',cls='cfgr'+((isDirty||isUnsaved)?' dirty':''),valCls='cv'+((isDirty||isUnsaved)?' dirty':''),sub=isUnsaved&&!isDirty?`<div style="font-size:8px;color:var(--dim)">saved: ${pv}</div>`:'',prettyName=s.k.replace(/_/g,' ');return `<div class="${cls}" onclick="openEdit(${s.n})"><div class="cn">${String(s.n).padStart(2,'0')}</div><div class="ci"><div class="cnm">${prettyName}</div><div class="cd">${s.d}</div>${sub}</div><div class="${valCls}">${dv}</div></div>`;}).join('');}
 function togAdv(){S.advOpen=!S.advOpen;syncAdvToggleUI();}
 function openEdit(n){const s=SCHEMA.find(x=>x.n===n);if(!s)return;const cur=S.working[s.k],saved=S.persistent[s.k];if(cur===undefined||saved===undefined){log('Waiting for ESP32 config — open Settings while connected.',false,true);return;}editN=n;const isMsVar=s.ms===true;document.getElementById('mtitle').textContent=s.k.replace(/_/g,' ');document.getElementById('mdesc').textContent=s.d+'\nSaved: '+s.f(saved);document.getElementById('munit').textContent=isMsVar?'Enter value in MINUTES':'Enter value';document.getElementById('minput').value=isMsVar?msToMin(cur):cur;document.getElementById('modal').classList.remove('hide');setTimeout(()=>document.getElementById('minput').focus(),150);}
@@ -401,7 +544,7 @@ function rtcKey(e){if(e.key!=='Enter')return;const v=e.target.value.trim(),m=v.m
 function log(msg,hl,er){const el=document.getElementById('blog'),t=new Date().toTimeString().slice(0,8),d=document.createElement('div');d.className='le'+(er?' er':hl?' hl':'');d.innerHTML='<span class="lt">'+t+' </span>'+msg;el.appendChild(d);while(el.children.length>BLE_LOG_MAX)el.removeChild(el.firstChild);el.scrollTop=el.scrollHeight;}
 function showScr(name,title){document.querySelectorAll('.scr').forEach(s=>s.classList.remove('on'));document.querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));document.getElementById('scr-'+name).classList.add('on');document.getElementById('tab-'+name).classList.add('on');document.getElementById('stitle').textContent=title;if(name==='hist'){syncHistBleBtns();if(S.conn)sendCmd('history');}if(name==='cfg'){renderCfg();if(S.conn)(async()=>{try{await new Promise(r=>setTimeout(r,80));await pullCfgFromEsp(!S.configLoaded);await new Promise(r=>setTimeout(r,100));await pullRtcFromEsp();if(S.conn&&rxC)sendCmd('status');}catch(e){log('Settings refresh '+e.message,false,true);}})();}}
 // --- 1s tick: header clock, RTC extrapolation, cooldown decay, stale pump/flow guard ---
-setInterval(()=>{document.getElementById('clk').textContent=new Date().toTimeString().slice(0,8);if(S.rtc&&S.rtcReceivedAt>0){const elapsedSec=Math.floor((Date.now()-S.rtcReceivedAt)/1000),base=new Date(S.rtc.replace(' ','T')).getTime(),ticked=new Date(base+elapsedSec*1000),ts=ticked.getFullYear()+'-'+String(ticked.getMonth()+1).padStart(2,'0')+'-'+String(ticked.getDate()).padStart(2,'0')+' '+String(ticked.getHours()).padStart(2,'0')+':'+String(ticked.getMinutes()).padStart(2,'0')+':'+String(ticked.getSeconds()).padStart(2,'0');document.getElementById('rtcdisp').textContent=ts;}if(S.cool){if(S.coolSec>0){S.coolSec--;if(S.coolSec<=0)S.cool=false;}else S.cool=false;}dash();const _n=Date.now();if(!dash._lastSparkMs||_n-dash._lastSparkMs>=250){dash._lastSparkMs=_n;drawSparks();}},1000);
+setInterval(()=>{document.getElementById('clk').textContent=new Date().toTimeString().slice(0,8);if(S.rtc&&S.rtcReceivedAt>0){const elapsedSec=Math.floor((Date.now()-S.rtcReceivedAt)/1000),base=new Date(S.rtc.replace(' ','T')).getTime(),ticked=new Date(base+elapsedSec*1000),ts=ticked.getFullYear()+'-'+String(ticked.getMonth()+1).padStart(2,'0')+'-'+String(ticked.getDate()).padStart(2,'0')+' '+String(ticked.getHours()).padStart(2,'0')+':'+String(ticked.getMinutes()).padStart(2,'0')+':'+String(ticked.getSeconds()).padStart(2,'0');document.getElementById('rtcdisp').textContent=ts;}if(S.cool){if(S.coolSec>0){S.coolSec--;if(S.coolSec<=0)S.cool=false;}else S.cool=false;}const dashOn=document.getElementById('scr-dash')&&document.getElementById('scr-dash').classList.contains('on');if(dashOn){dash();const _n=Date.now();if(!dash._lastSparkMs||_n-dash._lastSparkMs>=250){dash._lastSparkMs=_n;drawSparks();}}},1000);
 // --- Boot: pad layout under overlay until first connect; no-BLE browser guard ---
 document.querySelectorAll('.scr').forEach(s=>s.classList.add('banner-pad'));
 if(!navigator.bluetooth){document.getElementById('overlay').innerHTML=`<div class="ov-left"><div class="ov-title" style="color:var(--red)">BROWSER NOT SUPPORTED</div><div class="ov-sub">Open in Chrome on Android. chrome://flags → enable Experimental Web Platform</div><div id="err-msg"></div></div>`;}
