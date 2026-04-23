@@ -136,10 +136,6 @@ canvas{display:block;width:100%;height:100%}
 .rtct{font-size:20px;font-weight:bold;color:var(--white);margin-bottom:7px;letter-spacing:-.01em}
 .rtcbtn{flex:1;background:var(--green);color:#000;border:none;border-radius:3px;padding:7px 8px;font-family:var(--f);font-size:10px;font-weight:bold;letter-spacing:.06em;cursor:pointer}
 .rtcbtn:active{background:var(--green2)}
-.rtcbtn-dim{background:var(--bg3);color:var(--tx);border:1px solid var(--b2)}
-.rtcbtn-dim:active{background:var(--b)}
-.rtci{width:100%;background:var(--bg);border:1px solid var(--b2);border-radius:3px;padding:7px 8px;font-family:var(--f);font-size:10px;color:var(--tx)}
-.rtci:focus{outline:none;border-color:var(--green)}
 .cfgh{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px;padding:0 3px;min-width:0}
 .cfgl{font-size:9px;letter-spacing:.15em;color:var(--dim);min-width:0}
 .advtxt{font-family:var(--f)!important;font-size:10px!important;font-weight:700!important;color:var(--green)!important;background:transparent!important;border:none!important;cursor:pointer;letter-spacing:.04em;user-select:none;line-height:1;padding:0!important;margin:0!important;display:inline-block!important;visibility:visible!important;opacity:1!important;white-space:nowrap}
@@ -258,8 +254,7 @@ canvas{display:block;width:100%;height:100%}
       <div class="rtcc">
         <div class="rtcl">RTC TIME</div>
         <div class="rtct" id="rtcdisp">---- -- -- --:--:--</div>
-        <div style="display:flex;gap:7px;margin-bottom:7px"><button class="rtcbtn" onclick="syncRtcNow()">⟳ SYNC SENSOR TO PHONE TIME</button><button class="rtcbtn rtcbtn-dim" onclick="pullRtcFromEsp()">↺ REFRESH</button></div>
-        <input class="rtci" id="rtci" placeholder="manual: set time yyyy mm dd hh mm ss →" onkeydown="rtcKey(event)">
+        <div style="margin-bottom:7px"><button type="button" class="rtcbtn" style="width:100%" onclick="syncRtcNow()">⟳ SYNC SENSOR TO PHONE TIME</button></div>
       </div>
       <div class="msrow">
         <button type="button" class="msbtn" id="btnMso" onclick="masterShutoffToggle(event)">MASTER SHUTOFF</button>
@@ -539,7 +534,6 @@ function doReset(){if(!confirm('Reset ALL settings to factory defaults?\n\nThis 
 function manualWaterOn(){if(S.masterShutoff){log('Pump locked — tap SYSTEM RESUME in Settings first.',false,true);return;}S.waterDuration=S.working.MANUAL_WATERING_DURATION||60000;S.cool=false;S.coolSec=0;setPumpState({pump:true,mode:'RUNNING',startNow:true,durationMs:S.waterDuration});sendCmd('water on');scheduleUiFlush({sparks:true});}
 function manualWaterOff(){setPumpState({pump:false,mode:'IDLE',durationMs:0});S.waterStartedAt=0;S.cool=true;S.coolSec=Math.floor((S.working.WATERING_COOLDOWN||1800000)/1000);sendCmd('water off');pullHistoryIfHistTabVisible();scheduleUiFlush({sparks:true});}
 function syncRtcNow(){const now=new Date();sendCmd('set time '+now.getFullYear()+' '+(now.getMonth()+1)+' '+now.getDate()+' '+now.getHours()+' '+now.getMinutes()+' '+now.getSeconds());log('RTC synced to phone time',true);}
-function rtcKey(e){if(e.key!=='Enter')return;const v=e.target.value.trim(),m=v.match(/^(\d{4})\s+(\d{1,2})\s+(\d{1,2})\s+(\d{1,2})\s+(\d{1,2})\s+(\d{1,2})$/);if(m){sendCmd('set time '+m[1]+' '+m[2]+' '+m[3]+' '+m[4]+' '+m[5]+' '+m[6]);e.target.value='';}else log('Format: yyyy mm dd hh mm ss',false,true);}
 // --- BLE activity log (trimmed ring) ---
 function log(msg,hl,er){const el=document.getElementById('blog'),t=new Date().toTimeString().slice(0,8),d=document.createElement('div');d.className='le'+(er?' er':hl?' hl':'');d.innerHTML='<span class="lt">'+t+' </span>'+msg;el.appendChild(d);while(el.children.length>BLE_LOG_MAX)el.removeChild(el.firstChild);el.scrollTop=el.scrollHeight;}
 function showScr(name,title){document.querySelectorAll('.scr').forEach(s=>s.classList.remove('on'));document.querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));document.getElementById('scr-'+name).classList.add('on');document.getElementById('tab-'+name).classList.add('on');document.getElementById('stitle').textContent=title;if(name==='hist'){syncHistBleBtns();if(S.conn)sendCmd('history');}if(name==='cfg'){renderCfg();if(S.conn)(async()=>{try{await new Promise(r=>setTimeout(r,80));await pullCfgFromEsp(!S.configLoaded);await new Promise(r=>setTimeout(r,100));await pullRtcFromEsp();if(S.conn&&rxC)sendCmd('status');}catch(e){log('Settings refresh '+e.message,false,true);}})();}}
