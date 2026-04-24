@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!--
-  CURRENT BUILD VERSION: v1.2.57-field
+  CURRENT BUILD VERSION: v1.2.58-field
   Field build: Text BLE — read 0..15, time, status, history, water, set, save, reset, clear history; Settings toggles master shutoff hold/release (pump LOCKED until SYSTEM RESUME). ESP: V + WF_* + SOIL/FLOW + WF HT snapshot (TL/TF/DL/ML/AR/ER/MR + optional OL pump-off L) + persisted WF RH/WF EH rows; live WF RR/WF EV catches/faults; status/config may arrive as one notify (multiple LF-separated lines).
   History tab: opening History sends history (WF HT); CLEAR STORED → clear history. Receiver: ESP32_Now_Protocol_Recieve/ESP32_Now_Protocol_Recieve.ino (Arduino IDE).
 -->
@@ -203,7 +203,7 @@ canvas{display:block;width:100%;height:100%}
 <div id="app">
   <div id="hdr">
     <div class="hd-top">
-      <div class="hd-path">WHITE_FOX_CABIN / IRRIGATION <span style="color:#fff;font-size:11px;margin-left:8px;font-weight:bold">v1.2.57</span></div>
+      <div class="hd-path">WHITE_FOX_CABIN / IRRIGATION <span style="color:#fff;font-size:11px;margin-left:8px;font-weight:bold">v1.2.58</span></div>
       <div class="hd-ble" onclick="toggleBle()"><div class="ble-dot" id="bdot"></div><span id="blbl">CONNECT</span></div>
     </div>
     <div class="hd-bot"><div class="hd-title" id="stitle">Dashboard</div><div class="hd-clk" id="clk">--:--:--</div></div>
