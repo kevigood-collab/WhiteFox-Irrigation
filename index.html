@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!--
-  CURRENT BUILD VERSION: v1.2.56-field
+  CURRENT BUILD VERSION: v1.2.57-field
   Field build: Text BLE — read 0..15, time, status, history, water, set, save, reset, clear history; Settings toggles master shutoff hold/release (pump LOCKED until SYSTEM RESUME). ESP: V + WF_* + SOIL/FLOW + WF HT snapshot (TL/TF/DL/ML/AR/ER/MR + optional OL pump-off L) + persisted WF RH/WF EH rows; live WF RR/WF EV catches/faults; status/config may arrive as one notify (multiple LF-separated lines).
   History tab: opening History sends history (WF HT); CLEAR STORED → clear history. Receiver: ESP32_Now_Protocol_Recieve/ESP32_Now_Protocol_Recieve.ino (Arduino IDE).
 -->
@@ -203,7 +203,7 @@ canvas{display:block;width:100%;height:100%}
 <div id="app">
   <div id="hdr">
     <div class="hd-top">
-      <div class="hd-path">WHITE_FOX_CABIN / IRRIGATION <span style="color:#fff;font-size:11px;margin-left:8px;font-weight:bold">v1.2.56</span></div>
+      <div class="hd-path">WHITE_FOX_CABIN / IRRIGATION <span style="color:#fff;font-size:11px;margin-left:8px;font-weight:bold">v1.2.57</span></div>
       <div class="hd-ble" onclick="toggleBle()"><div class="ble-dot" id="bdot"></div><span id="blbl">CONNECT</span></div>
     </div>
     <div class="hd-bot"><div class="hd-title" id="stitle">Dashboard</div><div class="hd-clk" id="clk">--:--:--</div></div>
@@ -361,6 +361,11 @@ async function pullRtcFromEsp(){return _bleCfgRtcQueue.enqueue(async()=>{if(!S.c
 /** Same instant as Settings #rtcdisp / Dashboard sensor line (ESP string + elapsed on phone). */
 function getRtcExtrapolatedNow(){if(!S.rtc||!S.rtcReceivedAt)return null;const es=Math.floor((Date.now()-S.rtcReceivedAt)/1000),bs=new Date(S.rtc.replace(' ','T')).getTime();if(!Number.isFinite(bs))return null;return new Date(bs+es*1000);}
 function fmtRtcHmsFromDate(tk){return String(tk.getHours()).padStart(2,'0')+':'+String(tk.getMinutes()).padStart(2,'0')+':'+String(tk.getSeconds()).padStart(2,'0');}
+function fmtRtcMdHmFromDate(tk){return String(tk.getMonth()+1).padStart(2,'0')+'-'+String(tk.getDate()).padStart(2,'0')+' '+String(tk.getHours()).padStart(2,'0')+':'+String(tk.getMinutes()).padStart(2,'0');}
+function fmtRtcMdHmsFromDate(tk){return String(tk.getMonth()+1).padStart(2,'0')+'-'+String(tk.getDate()).padStart(2,'0')+' '+fmtRtcHmsFromDate(tk);}
+/** History / event stamps when “now”: same wall clock as Settings #rtcdisp (extrapolated ESP RTC), else phone. */
+function fmtHistStampNow(){return fmtRtcMdHmsFromDate(getRtcExtrapolatedNow()||new Date());}
+function fmtHistEventStampNow(){return fmtRtcMdHmFromDate(getRtcExtrapolatedNow()||new Date());}
 function tickRtcDerivedDisplays(){const prEl=document.getElementById('prtc'),rtcEl=document.getElementById('rtcdisp');const tk=getRtcExtrapolatedNow();if(tk){const ts=tk.getFullYear()+'-'+String(tk.getMonth()+1).padStart(2,'0')+'-'+String(tk.getDate()).padStart(2,'0')+' '+fmtRtcHmsFromDate(tk);if(rtcEl)rtcEl.textContent=ts;if(prEl)prEl.textContent=fmtRtcHmsFromDate(tk);}else{if(prEl)prEl.textContent=new Date().toTimeString().slice(0,8);}}
 /** BLE log prefix: match Settings RTC clock when loaded; else phone wall time. */
 function fmtBleLogRtcPrefix(){const tk=getRtcExtrapolatedNow();if(!tk)return new Date().toTimeString().slice(0,8);return fmtRtcHmsFromDate(tk);}
@@ -368,16 +373,16 @@ function setRtc(s){if(!s)return;S.rtc=s;S.rtcReceivedAt=Date.now();tickRtcDerive
 // --- History tab: WF HT line from ESP; CLEAR → OK history cleared ---
 function fillHistoryTiles(totL,tf,dl,ml,ar,er,mr,offL){const set=(id,v)=>{const el=document.getElementById(id);if(el)el.textContent=v;};const off=Number.isFinite(offL)?offL:0;set('h-tot-l',totL.toFixed(2));set('h-tf-l',tf.toFixed(2));set('h-day-l',dl.toFixed(2));set('h-mon-l',ml.toFixed(2));set('h-off-l',off.toFixed(2));set('h-auto-n',String(ar));set('h-emrg-n',String(er));set('h-man-n',String(mr));}
 function applyHistoryDom(m){const f=i=>{const v=parseFloat(m[i]);return Number.isFinite(v)?v:0;};const off=m[8]!==undefined&&m[8]!==''?f(8):0;fillHistoryTiles(f(1),f(2),f(3),f(4),parseInt(m[5],10)||0,parseInt(m[6],10)||0,parseInt(m[7],10)||0,off);}
-function fmtMdHm(d){return String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+' '+d.toTimeString().slice(0,5);}
-function fmtMdHms(d){return String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+' '+d.toTimeString().slice(0,8);}
-function fmtUnixMdHm(u){const n=Number(u)||0;if(n<=0)return'-- --:--';const d=new Date(n*1000);return fmtMdHm(d);}
-function fmtUnixHm(u){const n=Number(u)||0;if(n<=0)return'--:--';const d=new Date(n*1000);return d.toTimeString().slice(0,5);}
-function fmtUnixMdHms(u){const n=Number(u)||0;if(n<=0)return'-- --:--:--';const d=new Date(n*1000);return fmtMdHms(d);}
+function fmtMdHm(d){return fmtRtcMdHmFromDate(d);}
+function fmtMdHms(d){return fmtRtcMdHmsFromDate(d);}
+function fmtUnixMdHm(u){const n=Number(u)||0;if(n<=0)return'-- --:--';const d=new Date(n*1000);return fmtRtcMdHmFromDate(d);}
+function fmtUnixHm(u){const n=Number(u)||0;if(n<=0)return'--:--';const d=new Date(n*1000);return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');}
+function fmtUnixMdHms(u){const n=Number(u)||0;if(n<=0)return'-- --:--:--';const d=new Date(n*1000);return fmtRtcMdHmsFromDate(d);}
 function isRunEndError(tag){const t=String(tag||'').replace(/[^A-Za-z0-9]/g,'').toUpperCase();return t.includes('PUMPINITIATIONFAILURE')||t.includes('FAILTOSTARTPUMP')||t.includes('FLOWINTERRUPTED')||t.includes('UNWANTEDFLOWDETECTED')||t.includes('UNWATEDFLOWDETECTED')||t.includes('FAULT')||t.includes('ERROR')||t.includes('IMPROPER');}
 function resetRecentRunsBox(){const box=document.getElementById('h-recent-box');if(!box)return;box.innerHTML='<div class="evm hrr-empty-span" id="h-recent-hint">No runs yet.<br><span style="font-size:9px;letter-spacing:.02em">a row is added when watering stops</span></div>';}
 function resetEventLogBox(){const box=document.getElementById('h-event-box');if(!box)return;box.innerHTML='<div class="evm" id="h-event-hint">No events yet.<br><span style="font-size:9px;letter-spacing:.02em">flow faults, improper flow, and controller catches show here</span></div>';}
-function appendRecentRunRow(startStamp,startTrigger,litres,endTrigger,durSec){const box=document.getElementById('h-recent-box');if(!box)return;const hint=document.getElementById('h-recent-hint');if(hint)hint.remove();const row=document.createElement('div');row.className='hrr';const t=document.createElement('span');t.className='hrr-t';t.textContent=String(startStamp||fmtMdHms(new Date()));const ty=document.createElement('span');ty.className='hrr-type';ty.textContent=fmtRunEndLabel(String(startTrigger||'Run'));const litEl=document.createElement('span');litEl.className='hrr-lit';const durEl=document.createElement('span');durEl.className='hrr-dur';const closeEl=document.createElement('span');const l=Number.parseFloat(litres);const lit=Number.isFinite(l)?l.toFixed(2):'0.00';litEl.textContent=lit+' L';let dlab='';if(durSec!==undefined&&durSec!==null&&String(durSec)!==''){const ds=Number(durSec);if(Number.isFinite(ds)&&ds>=0){const x=fmtRunDurationSec(ds);if(x)dlab=x}}durEl.textContent=dlab||'—';const closeTag=endTrigger||'Done';closeEl.className='hrr-close '+(isRunEndError(closeTag)?'hrr-end-err':'hrr-end-ok');closeEl.textContent=fmtRunEndLabel(closeTag);row.appendChild(t);row.appendChild(ty);row.appendChild(litEl);row.appendChild(durEl);row.appendChild(closeEl);box.insertBefore(row,box.firstChild);while(box.childElementCount>10)box.removeChild(box.lastChild);}
-function appendEventRow(msg,id,timeStamp){const box=document.getElementById('h-event-box');if(!box||!msg)return;const hint=document.getElementById('h-event-hint');if(hint)hint.remove();const row=document.createElement('div');row.className='her';const t=document.createElement('span');t.className='her-t';t.textContent=timeStamp||fmtMdHm(new Date());const m=document.createElement('span');m.className='her-msg';m.textContent=String(msg);const i=document.createElement('span');i.className='her-id';i.textContent=id?String(id):'';row.appendChild(t);row.appendChild(m);row.appendChild(i);box.insertBefore(row,box.firstChild);while(box.childElementCount>60)box.removeChild(box.lastChild);}
+function appendRecentRunRow(startStamp,startTrigger,litres,endTrigger,durSec){const box=document.getElementById('h-recent-box');if(!box)return;const hint=document.getElementById('h-recent-hint');if(hint)hint.remove();const row=document.createElement('div');row.className='hrr';const t=document.createElement('span');t.className='hrr-t';t.textContent=String(startStamp||fmtHistStampNow());const ty=document.createElement('span');ty.className='hrr-type';ty.textContent=fmtRunEndLabel(String(startTrigger||'Run'));const litEl=document.createElement('span');litEl.className='hrr-lit';const durEl=document.createElement('span');durEl.className='hrr-dur';const closeEl=document.createElement('span');const l=Number.parseFloat(litres);const lit=Number.isFinite(l)?l.toFixed(2):'0.00';litEl.textContent=lit+' L';let dlab='';if(durSec!==undefined&&durSec!==null&&String(durSec)!==''){const ds=Number(durSec);if(Number.isFinite(ds)&&ds>=0){const x=fmtRunDurationSec(ds);if(x)dlab=x}}durEl.textContent=dlab||'—';const closeTag=endTrigger||'Done';closeEl.className='hrr-close '+(isRunEndError(closeTag)?'hrr-end-err':'hrr-end-ok');closeEl.textContent=fmtRunEndLabel(closeTag);row.appendChild(t);row.appendChild(ty);row.appendChild(litEl);row.appendChild(durEl);row.appendChild(closeEl);box.insertBefore(row,box.firstChild);while(box.childElementCount>10)box.removeChild(box.lastChild);}
+function appendEventRow(msg,id,timeStamp){const box=document.getElementById('h-event-box');if(!box||!msg)return;const hint=document.getElementById('h-event-hint');if(hint)hint.remove();const row=document.createElement('div');row.className='her';const t=document.createElement('span');t.className='her-t';t.textContent=timeStamp||fmtHistEventStampNow();const m=document.createElement('span');m.className='her-msg';m.textContent=String(msg);const i=document.createElement('span');i.className='her-id';i.textContent=id?String(id):'';row.appendChild(t);row.appendChild(m);row.appendChild(i);box.insertBefore(row,box.firstChild);while(box.childElementCount>60)box.removeChild(box.lastChild);}
 function fmtRunEndLabel(s){return String(s||'').replace(/_/g,' ').replace(/([a-z])([A-Z])/g,'$1 $2').replace(/\b([a-z])/g,(m,p1)=>p1.toUpperCase());}
 const STATUS_LINE_HANDLERS = [
   [/^WF HT:TL=([\d.]+) TF=([\d.]+) DL=([\d.]+) ML=([\d.]+) AR=(\d+) ER=(\d+) MR=(\d+)(?: OL=([\d.]+))?$/, (m) => {
@@ -392,11 +397,11 @@ const STATUS_LINE_HANDLERS = [
     return true;
   }],
   [/^WF RR:S:([A-Za-z0-9_]+)$/, (m) => {
-    recentRunPending = { stamp: fmtMdHms(new Date()), startTrigger: String(m[1]) };
+    recentRunPending = { stamp: fmtHistStampNow(), startTrigger: String(m[1]) };
     return true;
   }],
   [/^WF RR:E:([A-Za-z0-9_]+):([A-Za-z0-9_]+):(\d+):([\d.]+)(?::([A-Za-z0-9_]+))?$/, (m) => {
-    const st = recentRunPending && recentRunPending.stamp ? recentRunPending.stamp : fmtMdHms(new Date());
+    const st = recentRunPending && recentRunPending.stamp ? recentRunPending.stamp : fmtHistStampNow();
     const tr = recentRunPending && recentRunPending.startTrigger ? recentRunPending.startTrigger : m[1];
     appendRecentRunRow(st, tr, m[4], m[5] || m[2], m[3]);
     recentRunPending = null;
