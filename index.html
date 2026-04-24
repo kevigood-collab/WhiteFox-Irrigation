@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
-  CURRENT BUILD VERSION: v1.2.66-field
-  Field build: Text BLE — read 0..15, time, status, history, water, set, save, reset, clear history; Settings toggles master shutoff hold/release (pump LOCKED until SYSTEM RESUME). ESP: V + WF_* + SOIL/FLOW + WF HT + WF RH/WF EH; live WF RR:E includes :SU= start unix for Recent Runs sort; status/config may be one notify (LF-separated).
+  CURRENT BUILD VERSION: v1.2.67-field
+  Field build: Text BLE — read 0..15, time, status, history, water, set, save, reset, clear history; Settings toggles master shutoff hold/release (pump LOCKED until SYSTEM RESUME). ESP: V + WF_* + SOIL/FLOW + WF HT + WF RH/WF EH; live WF RR:S adds Recent Run row (start+trigger); WF RR:E fills litres/duration/close; WF RR:E :SU= for sort; status/config may be one notify (LF-separated).
   History tab: opening History sends history (WF HT); CLEAR STORED → clear history. Receiver: ESP32_Now_Protocol_Recieve/ESP32_Now_Protocol_Recieve.ino (Arduino IDE).
 -->
 <html lang="en">
@@ -138,6 +138,7 @@ canvas{display:block;width:100%;height:100%}
 .hrr-close::-webkit-scrollbar{width:0;height:0;display:none}
 .hrr-close.hrr-end-ok{color:var(--white)}
 .hrr-close.hrr-end-err{color:var(--red)}
+.hrr-close.hrr-end-pending{color:var(--dim);font-weight:500}
 .hrr-empty-span{grid-column:1 / -1}
 .her{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px 14px;padding:9px 11px;border-bottom:1px solid var(--b);font-size:10px;font-family:var(--f);align-items:center;line-height:1.35}
 .her:last-of-type{border-bottom:none}
@@ -204,7 +205,7 @@ canvas{display:block;width:100%;height:100%}
 <div id="app">
   <div id="hdr">
     <div class="hd-top">
-      <div class="hd-path">WHITE_FOX_CABIN / IRRIGATION <span style="color:#fff;font-size:11px;margin-left:8px;font-weight:bold">v1.2.66</span></div>
+      <div class="hd-path">WHITE_FOX_CABIN / IRRIGATION <span style="color:#fff;font-size:11px;margin-left:8px;font-weight:bold">v1.2.67</span></div>
       <div class="hd-ble" onclick="toggleBle()"><div class="ble-dot" id="bdot"></div><span id="blbl">CONNECT</span></div>
     </div>
     <div class="hd-bot"><div class="hd-title" id="stitle">Dashboard</div><div class="hd-clk" id="clk">--:--:--</div></div>
@@ -245,18 +246,18 @@ canvas{display:block;width:100%;height:100%}
           <div class="sc"><div class="sl">EMRG RUNS</div><div class="sv" id="h-emrg-n">—</div><div class="su">count</div></div>
           <div class="sc"><div class="sl">MANUAL RUNS</div><div class="sv" id="h-man-n">—</div><div class="su">count</div></div>
         </div>
-        <div class="hist-sub" style="margin-top:6px">Litres by run type (lifetime): Auto <b id="h-l-auto">—</b> L · Emerg <b id="h-l-emrg">—</b> L · Manual <b id="h-l-man">—</b> L</div>
+        <div class="hist-sub" style="margin-top:6px">Auto <b id="h-l-auto">—</b> L · Emerg <b id="h-l-emrg">—</b> L · Manual <b id="h-l-man">—</b> L</div>
         <div class="hist-sub" style="margin-top:6px">Day <b id="h-day-l">—</b> L · Month <b id="h-mon-l">—</b> L · Lifetime flow <b id="h-tf-l">—</b> L</div>
         <div class="hist-sub" style="margin-top:6px">Pump-off metered <b id="h-off-l">—</b> L <span style="color:var(--dim)">(pulse meter while relay off — leaks / dribble; not included in run totals above)</span></div>
       </div>
       <div class="card">
         <div class="ch"><div class="cl">RECENT RUNS</div><div class="cs" style="color:var(--dim)">(newest first)</div></div>
-        <div class="hist-sub">Each row is one completed run on the ESP32. <b>Start</b> is sensor RTC when the run began (not the phone clock). The <b>top-right clock</b> is your phone. <b>Duration</b> is seconds until stop; litres are from the pulse meter. Swipe the right column if a line is long.</div>
+        <div class="hist-sub">Each row is one run on the ESP32. On BLE, <b>Start</b> and <b>Trigger</b> appear when watering starts; <b>Litres</b>, <b>Duration</b>, and the right-hand status update together when it stops. NVS replay (<code>WF RH</code>) shows full rows. Swipe the right column if a line is long.</div>
         <div class="hist-panel hist-run-log esp-scroll5">
           <div class="hrr-subgrid-wrap">
             <div class="hrr-hdr hrr-row"><span>START</span><span>TRIGGER</span><span>LITRES</span><span>DURATION</span><span aria-hidden="true"></span></div>
             <div id="h-recent-box" class="hrr-recent-surface">
-          <div class="evm hrr-empty-span" id="h-recent-hint">No runs yet.<br><span style="font-size:9px;letter-spacing:.02em">a row is added when watering stops</span></div>
+          <div class="evm hrr-empty-span" id="h-recent-hint">No runs yet.<br><span style="font-size:9px;letter-spacing:.02em">start + trigger show on water on; litres, duration, and status on water off</span></div>
             </div>
           </div>
         </div>
@@ -343,7 +344,7 @@ async function attachBleFromDevice(chosen){dev=chosen;dev.addEventListener('gatt
 function connectBleErr(em,e){const raw=e&&(e.message||String(e))||'Connection failed',low=raw.toLowerCase();let ui=raw;if(low.includes('no compatible')||e.name==='NotFoundError')ui='No compatible device found. Check ESP32 power + Chrome + BT + Location.';else if(low.includes('cancel')||low.includes('chooser'))ui='Picker closed — pick WhiteFox Irrigation from the list.';else if(low.includes('gatt')||low.includes('service'))ui='Wrong device selected. Choose WhiteFox Irrigation.';em.textContent=ui;log('Error: '+raw,false,true);}
 async function connectBle(){const em=document.getElementById('err-msg');em.textContent='Scanning…';try{const chosen=await navigator.bluetooth.requestDevice({filters:[{name:'WhiteFox Irrigation'},{namePrefix:'WhiteFox'},{services:[SVC]}],optionalServices:[SVC,RXU,TXU]});await attachBleFromDevice(chosen);}catch(e){connectBleErr(em,e);}}
 async function toggleBle(){if(S.conn){if(dev&&dev.gatt.connected)dev.gatt.disconnect();}else connectBle();}
-function onDC(){S.masterShutoff=false;stopLivePoll();if(pendingRtcGrab||pendingReadVal||pendingRtcRead)dbg('disconnect: clearing pendings');if(pendingRtcGrab){clearTimeout(pendingRtcGrab.tm);pendingRtcGrab.rej(new Error('disconnect'));pendingRtcGrab=null;}if(pendingReadVal){clearTimeout(pendingReadVal.tm);pendingReadVal.rej(new Error('disconnect'));pendingReadVal=null;}if(pendingRtcRead){clearTimeout(pendingRtcRead.tm);pendingRtcRead.rej(new Error('disconnect'));pendingRtcRead=null;}buf='';setConn(false);log('Disconnected',false,true);cmdQueue.length=0;cmdInFlight=false;recentRunPending=null;document.getElementById('overlay').classList.remove('hide');document.querySelectorAll('.scr').forEach(s=>s.classList.add('banner-pad'));setPumpState({pump:false,mode:'UNKNOWN',durationMs:0});S.flow=0;dash();}
+function onDC(){S.masterShutoff=false;stopLivePoll();if(pendingRtcGrab||pendingReadVal||pendingRtcRead)dbg('disconnect: clearing pendings');if(pendingRtcGrab){clearTimeout(pendingRtcGrab.tm);pendingRtcGrab.rej(new Error('disconnect'));pendingRtcGrab=null;}if(pendingReadVal){clearTimeout(pendingReadVal.tm);pendingReadVal.rej(new Error('disconnect'));pendingReadVal=null;}if(pendingRtcRead){clearTimeout(pendingRtcRead.tm);pendingRtcRead.rej(new Error('disconnect'));pendingRtcRead=null;}buf='';setConn(false);log('Disconnected',false,true);cmdQueue.length=0;cmdInFlight=false;recentRunPending=null;const hrb=document.getElementById('h-recent-box');if(hrb)hrb.querySelectorAll('.hrr-pending').forEach((el)=>el.remove());document.getElementById('overlay').classList.remove('hide');document.querySelectorAll('.scr').forEach(s=>s.classList.add('banner-pad'));setPumpState({pump:false,mode:'UNKNOWN',durationMs:0});S.flow=0;dash();}
 function setConn(v){S.conn=v;document.getElementById('bdot').className='ble-dot'+(v?' on':'');document.getElementById('blbl').textContent=v?'BLE LINK':'CONNECT';if(v){S.masterShutoff=false;S.configLoaded=false;S.savePending=false;S.dirty={};S.pendingFactorySave=false;document.getElementById('overlay').classList.add('hide');document.querySelectorAll('.scr').forEach(s=>s.classList.remove('banner-pad'));}else{stopLivePoll();S.configLoaded=false;S.savePending=false;S.pendingFactorySave=false;}syncMsoBtn();syncHistBleBtns();renderCfg();}
 // --- Outbound command queue: avoids overlapping GATT writes (gap helps Android) ---
 const cmdQueue=[];let cmdInFlight=false;
@@ -383,10 +384,13 @@ function fmtUnixHm(u){const n=Number(u)||0;if(n<=0)return'--:--';const d=new Dat
 function fmtUnixMdHms(u){const n=Number(u)||0;if(n<=0)return'-- --:--:--';const d=new Date(n*1000);return fmtRtcMdHmsFromDate(d);}
 function isRunEndError(tag){const t=String(tag||'').replace(/[^A-Za-z0-9]/g,'').toUpperCase();return t.includes('PUMPINITIATIONFAILURE')||t.includes('FAILTOSTARTPUMP')||t.includes('FLOWINTERRUPTED')||t.includes('UNWANTEDFLOWDETECTED')||t.includes('UNWATEDFLOWDETECTED')||t.includes('FAULT')||t.includes('ERROR')||t.includes('IMPROPER');}
 let _hrrRecvSeq=0;
-function resetRecentRunsBox(){_hrrRecvSeq=0;const box=document.getElementById('h-recent-box');if(!box)return;box.innerHTML='<div class="evm hrr-empty-span" id="h-recent-hint">No runs yet.<br><span style="font-size:9px;letter-spacing:.02em">a row is added when watering stops</span></div>';}
+function resetRecentRunsBox(){_hrrRecvSeq=0;const box=document.getElementById('h-recent-box');if(!box)return;box.innerHTML='<div class="evm hrr-empty-span" id="h-recent-hint">No runs yet.<br><span style="font-size:9px;letter-spacing:.02em">start + trigger show on water on; litres, duration, and status on water off</span></div>';}
 function sortRecentRunRows(){const box=document.getElementById('h-recent-box');if(!box)return;const rows=[...box.querySelectorAll('.hrr')];if(rows.length<2)return;rows.sort((a,b)=>{const d=(parseInt(b.dataset.su,10)||0)-(parseInt(a.dataset.su,10)||0);if(d)return d;return(parseInt(b.dataset.seq,10)||0)-(parseInt(a.dataset.seq,10)||0);});for(let i=rows.length-1;i>=0;i--)box.insertBefore(rows[i],box.firstChild);}
 function resetEventLogBox(){const box=document.getElementById('h-event-box');if(!box)return;box.innerHTML='<div class="evm" id="h-event-hint">No events yet.<br><span style="font-size:9px;letter-spacing:.02em">flow faults, improper flow, and controller catches show here</span></div>';}
-function appendRecentRunRow(startStamp,startTrigger,litres,endTrigger,durSec,startUnix){const box=document.getElementById('h-recent-box');if(!box)return;const hint=document.getElementById('h-recent-hint');if(hint)hint.remove();const row=document.createElement('div');row.className='hrr';const su=Math.max(0,Number(startUnix)||0);row.dataset.su=String(su);row.dataset.seq=String(++_hrrRecvSeq);const t=document.createElement('span');t.className='hrr-t';t.textContent=String(startStamp||fmtHistStampNow());const ty=document.createElement('span');ty.className='hrr-type';ty.textContent=fmtRunEndLabel(String(startTrigger||'Run'));const litEl=document.createElement('span');litEl.className='hrr-lit';const durEl=document.createElement('span');durEl.className='hrr-dur';const closeEl=document.createElement('span');const l=Number.parseFloat(litres);const lit=Number.isFinite(l)?l.toFixed(2):'0.00';litEl.textContent=lit+' L';let dlab='';if(durSec!==undefined&&durSec!==null&&String(durSec)!==''){const ds=Number(durSec);if(Number.isFinite(ds)&&ds>=0){const x=fmtRunDurationSec(ds);if(x)dlab=x}}durEl.textContent=dlab||'—';const closeTag=endTrigger||'Done';closeEl.className='hrr-close '+(isRunEndError(closeTag)?'hrr-end-err':'hrr-end-ok');closeEl.textContent=fmtRunEndLabel(closeTag);row.appendChild(t);row.appendChild(ty);row.appendChild(litEl);row.appendChild(durEl);row.appendChild(closeEl);box.appendChild(row);sortRecentRunRows();while(box.childElementCount>10)box.removeChild(box.lastChild);}
+function finalizeRecentRunLitDurClose(litEl,durEl,closeEl,litres,endTrigger,durSec){const l=Number.parseFloat(litres);const lit=Number.isFinite(l)?l.toFixed(2):'0.00';litEl.textContent=lit+' L';let dlab='';if(durSec!==undefined&&durSec!==null&&String(durSec)!==''){const ds=Number(durSec);if(Number.isFinite(ds)&&ds>=0){const x=fmtRunDurationSec(ds);if(x)dlab=x}}durEl.textContent=dlab||'—';const closeTag=endTrigger||'Done';closeEl.className='hrr-close '+(isRunEndError(closeTag)?'hrr-end-err':'hrr-end-ok');closeEl.textContent=fmtRunEndLabel(closeTag);}
+function appendRecentRunRow(startStamp,startTrigger,litres,endTrigger,durSec,startUnix){const box=document.getElementById('h-recent-box');if(!box)return;const hint=document.getElementById('h-recent-hint');if(hint)hint.remove();const row=document.createElement('div');row.className='hrr';const su=Math.max(0,Number(startUnix)||0);row.dataset.su=String(su);row.dataset.seq=String(++_hrrRecvSeq);const t=document.createElement('span');t.className='hrr-t';t.textContent=String(startStamp||fmtHistStampNow());const ty=document.createElement('span');ty.className='hrr-type';ty.textContent=fmtRunEndLabel(String(startTrigger||'Run'));const litEl=document.createElement('span');litEl.className='hrr-lit';const durEl=document.createElement('span');durEl.className='hrr-dur';const closeEl=document.createElement('span');finalizeRecentRunLitDurClose(litEl,durEl,closeEl,litres,endTrigger,durSec);row.appendChild(t);row.appendChild(ty);row.appendChild(litEl);row.appendChild(durEl);row.appendChild(closeEl);box.appendChild(row);sortRecentRunRows();while(box.childElementCount>10)box.removeChild(box.lastChild);}
+function beginRecentRunRow(startTrigger){const box=document.getElementById('h-recent-box');if(!box)return;const hint=document.getElementById('h-recent-hint');if(hint)hint.remove();if(recentRunPending&&recentRunPending.rowEl&&recentRunPending.rowEl.parentNode===box)recentRunPending.rowEl.remove();recentRunPending=null;const row=document.createElement('div');row.className='hrr hrr-pending';row.dataset.pending='1';const su=Math.floor(Date.now()/1000);row.dataset.su=String(su);row.dataset.seq=String(++_hrrRecvSeq);const t=document.createElement('span');t.className='hrr-t';t.textContent=String(fmtHistStampNow());const ty=document.createElement('span');ty.className='hrr-type';ty.textContent=fmtRunEndLabel(String(startTrigger||'Run'));const litEl=document.createElement('span');litEl.className='hrr-lit';litEl.textContent='—';const durEl=document.createElement('span');durEl.className='hrr-dur';durEl.textContent='—';const closeEl=document.createElement('span');closeEl.className='hrr-close hrr-end-pending';closeEl.textContent='…';row.appendChild(t);row.appendChild(ty);row.appendChild(litEl);row.appendChild(durEl);row.appendChild(closeEl);box.appendChild(row);recentRunPending={rowEl:row};sortRecentRunRows();while(box.childElementCount>10)box.removeChild(box.lastChild);}
+function completeRecentRunRowIfPending(litres,endTrigger,durSec,startUnix){const p=recentRunPending;if(!p||!p.rowEl||!p.rowEl.isConnected||p.rowEl.dataset.pending!=='1')return false;const row=p.rowEl;const litEl=row.querySelector('.hrr-lit'),durEl=row.querySelector('.hrr-dur'),closeEl=row.querySelector('.hrr-close');if(!litEl||!durEl||!closeEl)return false;finalizeRecentRunLitDurClose(litEl,durEl,closeEl,litres,endTrigger,durSec);row.dataset.su=String(Math.max(0,Number(startUnix)||0));delete row.dataset.pending;row.classList.remove('hrr-pending');recentRunPending=null;sortRecentRunRows();return true;}
 function appendEventRow(msg,id,timeStamp){const box=document.getElementById('h-event-box');if(!box||!msg)return;const hint=document.getElementById('h-event-hint');if(hint)hint.remove();const row=document.createElement('div');row.className='her';const t=document.createElement('span');t.className='her-t';t.textContent=timeStamp||fmtHistEventStampNow();const m=document.createElement('span');m.className='her-msg';m.textContent=String(msg);const i=document.createElement('span');i.className='her-id';i.textContent=id?String(id):'';row.appendChild(t);row.appendChild(m);row.appendChild(i);box.insertBefore(row,box.firstChild);while(box.childElementCount>60)box.removeChild(box.lastChild);}
 function fmtRunEndLabel(s){return String(s||'').replace(/_/g,' ').replace(/([a-z])([A-Z])/g,'$1 $2').replace(/\b([a-z])/g,(m,p1)=>p1.toUpperCase());}
 const STATUS_LINE_HANDLERS = [
@@ -402,15 +406,15 @@ const STATUS_LINE_HANDLERS = [
     return true;
   }],
   [/^WF RR:S:([A-Za-z0-9_]+)$/, (m) => {
-    recentRunPending = { stamp: fmtHistStampNow(), startTrigger: String(m[1]) };
+    beginRecentRunRow(String(m[1]));
     return true;
   }],
   [/^WF RR:E:([A-Za-z0-9_]+):([A-Za-z0-9_]+):(\d+):([\d.]+)(?::([A-Za-z0-9_]+))?(?::SU=(\d+))?$/, (m) => {
-    const st = recentRunPending && recentRunPending.stamp ? recentRunPending.stamp : fmtHistStampNow();
-    const tr = recentRunPending && recentRunPending.startTrigger ? recentRunPending.startTrigger : m[1];
     const su=m[6]!==undefined&&m[6]!==''?parseInt(m[6],10):Math.floor(Date.now()/1000);
-    appendRecentRunRow(st, tr, m[4], m[5] || m[2], m[3], su);
-    recentRunPending = null;
+    const closeTag=m[5]!==undefined&&m[5]!==''?m[5]:m[2];
+    if(completeRecentRunRowIfPending(m[4],closeTag,m[3],su))return true;
+    appendRecentRunRow(fmtUnixMdHms(su),String(m[1]),m[4],closeTag,m[3],su);
+    recentRunPending=null;
     return true;
   }],
   [/^WF EH:U=(\d+) M=(.*)$/, (m) => {
