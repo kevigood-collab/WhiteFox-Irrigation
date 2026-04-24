@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!--
-  CURRENT BUILD VERSION: v1.2.58-field
+  CURRENT BUILD VERSION: v1.2.59-field
   Field build: Text BLE — read 0..15, time, status, history, water, set, save, reset, clear history; Settings toggles master shutoff hold/release (pump LOCKED until SYSTEM RESUME). ESP: V + WF_* + SOIL/FLOW + WF HT snapshot (TL/TF/DL/ML/AR/ER/MR + optional OL pump-off L) + persisted WF RH/WF EH rows; live WF RR/WF EV catches/faults; status/config may arrive as one notify (multiple LF-separated lines).
   History tab: opening History sends history (WF HT); CLEAR STORED → clear history. Receiver: ESP32_Now_Protocol_Recieve/ESP32_Now_Protocol_Recieve.ino (Arduino IDE).
 -->
@@ -203,7 +203,7 @@ canvas{display:block;width:100%;height:100%}
 <div id="app">
   <div id="hdr">
     <div class="hd-top">
-      <div class="hd-path">WHITE_FOX_CABIN / IRRIGATION <span style="color:#fff;font-size:11px;margin-left:8px;font-weight:bold">v1.2.58</span></div>
+      <div class="hd-path">WHITE_FOX_CABIN / IRRIGATION <span style="color:#fff;font-size:11px;margin-left:8px;font-weight:bold">v1.2.59</span></div>
       <div class="hd-ble" onclick="toggleBle()"><div class="ble-dot" id="bdot"></div><span id="blbl">CONNECT</span></div>
     </div>
     <div class="hd-bot"><div class="hd-title" id="stitle">Dashboard</div><div class="hd-clk" id="clk">--:--:--</div></div>
@@ -381,7 +381,7 @@ function fmtUnixMdHms(u){const n=Number(u)||0;if(n<=0)return'-- --:--:--';const 
 function isRunEndError(tag){const t=String(tag||'').replace(/[^A-Za-z0-9]/g,'').toUpperCase();return t.includes('PUMPINITIATIONFAILURE')||t.includes('FAILTOSTARTPUMP')||t.includes('FLOWINTERRUPTED')||t.includes('UNWANTEDFLOWDETECTED')||t.includes('UNWATEDFLOWDETECTED')||t.includes('FAULT')||t.includes('ERROR')||t.includes('IMPROPER');}
 function resetRecentRunsBox(){const box=document.getElementById('h-recent-box');if(!box)return;box.innerHTML='<div class="evm hrr-empty-span" id="h-recent-hint">No runs yet.<br><span style="font-size:9px;letter-spacing:.02em">a row is added when watering stops</span></div>';}
 function resetEventLogBox(){const box=document.getElementById('h-event-box');if(!box)return;box.innerHTML='<div class="evm" id="h-event-hint">No events yet.<br><span style="font-size:9px;letter-spacing:.02em">flow faults, improper flow, and controller catches show here</span></div>';}
-function appendRecentRunRow(startStamp,startTrigger,litres,endTrigger,durSec){const box=document.getElementById('h-recent-box');if(!box)return;const hint=document.getElementById('h-recent-hint');if(hint)hint.remove();const row=document.createElement('div');row.className='hrr';const t=document.createElement('span');t.className='hrr-t';t.textContent=String(startStamp||fmtHistStampNow());const ty=document.createElement('span');ty.className='hrr-type';ty.textContent=fmtRunEndLabel(String(startTrigger||'Run'));const litEl=document.createElement('span');litEl.className='hrr-lit';const durEl=document.createElement('span');durEl.className='hrr-dur';const closeEl=document.createElement('span');const l=Number.parseFloat(litres);const lit=Number.isFinite(l)?l.toFixed(2):'0.00';litEl.textContent=lit+' L';let dlab='';if(durSec!==undefined&&durSec!==null&&String(durSec)!==''){const ds=Number(durSec);if(Number.isFinite(ds)&&ds>=0){const x=fmtRunDurationSec(ds);if(x)dlab=x}}durEl.textContent=dlab||'—';const closeTag=endTrigger||'Done';closeEl.className='hrr-close '+(isRunEndError(closeTag)?'hrr-end-err':'hrr-end-ok');closeEl.textContent=fmtRunEndLabel(closeTag);row.appendChild(t);row.appendChild(ty);row.appendChild(litEl);row.appendChild(durEl);row.appendChild(closeEl);box.insertBefore(row,box.firstChild);while(box.childElementCount>10)box.removeChild(box.lastChild);}
+function appendRecentRunRow(startStamp,startTrigger,litres,endTrigger,durSec,prepend){const box=document.getElementById('h-recent-box');if(!box)return;const hint=document.getElementById('h-recent-hint');if(hint)hint.remove();const row=document.createElement('div');row.className='hrr';const t=document.createElement('span');t.className='hrr-t';t.textContent=String(startStamp||fmtHistStampNow());const ty=document.createElement('span');ty.className='hrr-type';ty.textContent=fmtRunEndLabel(String(startTrigger||'Run'));const litEl=document.createElement('span');litEl.className='hrr-lit';const durEl=document.createElement('span');durEl.className='hrr-dur';const closeEl=document.createElement('span');const l=Number.parseFloat(litres);const lit=Number.isFinite(l)?l.toFixed(2):'0.00';litEl.textContent=lit+' L';let dlab='';if(durSec!==undefined&&durSec!==null&&String(durSec)!==''){const ds=Number(durSec);if(Number.isFinite(ds)&&ds>=0){const x=fmtRunDurationSec(ds);if(x)dlab=x}}durEl.textContent=dlab||'—';const closeTag=endTrigger||'Done';closeEl.className='hrr-close '+(isRunEndError(closeTag)?'hrr-end-err':'hrr-end-ok');closeEl.textContent=fmtRunEndLabel(closeTag);row.appendChild(t);row.appendChild(ty);row.appendChild(litEl);row.appendChild(durEl);row.appendChild(closeEl);if(prepend!==false)box.insertBefore(row,box.firstChild);else box.appendChild(row);while(box.childElementCount>10)box.removeChild(box.lastChild);}
 function appendEventRow(msg,id,timeStamp){const box=document.getElementById('h-event-box');if(!box||!msg)return;const hint=document.getElementById('h-event-hint');if(hint)hint.remove();const row=document.createElement('div');row.className='her';const t=document.createElement('span');t.className='her-t';t.textContent=timeStamp||fmtHistEventStampNow();const m=document.createElement('span');m.className='her-msg';m.textContent=String(msg);const i=document.createElement('span');i.className='her-id';i.textContent=id?String(id):'';row.appendChild(t);row.appendChild(m);row.appendChild(i);box.insertBefore(row,box.firstChild);while(box.childElementCount>60)box.removeChild(box.lastChild);}
 function fmtRunEndLabel(s){return String(s||'').replace(/_/g,' ').replace(/([a-z])([A-Z])/g,'$1 $2').replace(/\b([a-z])/g,(m,p1)=>p1.toUpperCase());}
 const STATUS_LINE_HANDLERS = [
@@ -393,7 +393,7 @@ const STATUS_LINE_HANDLERS = [
     return true;
   }],
   [/^WF RH:SU=(\d+) EU=(\d+) RS=([A-Za-z0-9_]+) EK=([A-Za-z0-9_]+) DS=(\d+) L=([\d.]+)(?: CL=([A-Za-z0-9_]+))?$/, (m) => {
-    appendRecentRunRow(fmtUnixMdHms(m[1]), m[3], m[6], m[7] || m[4], m[5]);
+    appendRecentRunRow(fmtUnixMdHms(m[1]), m[3], m[6], m[7] || m[4], m[5], false);
     return true;
   }],
   [/^WF RR:S:([A-Za-z0-9_]+)$/, (m) => {
